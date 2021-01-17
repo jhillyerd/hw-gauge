@@ -3,6 +3,8 @@
 
 use rtt_target::rprintln;
 
+mod io;
+
 #[rtic::app(
     device = stm32f1xx_hal::pac,
     peripherals = true,
@@ -10,18 +12,22 @@ use rtt_target::rprintln;
     dispatchers = [SPI1, SPI2]
 )]
 mod app {
+    use crate::io;
     use crate::Direction;
+    use cortex_m::asm::delay;
     use embedded_hal::digital::v2::*;
     use rtic::cyccnt::U32Ext;
     use rtic_core::prelude::*;
     use rtt_target::rprintln;
-    use stm32f1xx_hal::{gpio::*, pac, prelude::*, pwm, rcc::Clocks, timer};
+    use stm32f1xx_hal::{gpio::*, pac, prelude::*, pwm, rcc::Clocks, timer, usb};
+    use usb_device::{bus::UsbBusAllocator, prelude::*};
 
     // Frequency of the system clock, which will also be the frequency of CYCCNT.
     const SYSCLK_HZ: u32 = 72_000_000;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
     const RTT_POLL_PERIOD: u32 = SYSCLK_HZ / 5;
+    const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
 
     // Levels for offboard PWM LED blink.
     const PWM_LEVELS: [u16; 8] = [0, 5, 10, 15, 25, 40, 65, 100];
@@ -35,19 +41,22 @@ mod app {
         scope: gpioa::PA4<Output<PushPull>>,
         scope_timer: timer::CountDownTimer<pac::TIM2>,
         led_pwm: pwm::Pwm<pac::TIM3, timer::Tim3NoRemap, pwm::C1, PwmLED>,
+        serial: io::Serial,
         // Used to read input from host over RTT.
         rtt_down: rtt_target::DownChannel,
     }
 
     #[init]
     fn init(ctx: init::Context) -> init::LateResources {
+        static mut USB_BUS: Option<UsbBusAllocator<usb::UsbBusType>> = None;
+
         // Initialize RTT communication with host.
         let rtt_channels = rtt_target::rtt_init_default!();
         rtt_target::set_print_channel(rtt_channels.up.0);
 
         rprintln!("RTIC 0.6 init started");
         let mut cp = ctx.core;
-        let dp = ctx.device;
+        let dp: pac::Peripherals = ctx.device;
 
         // Enable CYCCNT; used for scheduling.
         cp.DWT.enable_cycle_counter();
@@ -67,6 +76,7 @@ mod app {
         rprintln!(" APB1 TIM: {:?} MHz", clocks.pclk1_tim().0 / 1_000_000);
         rprintln!(" APB2 clk: {:?} MHz", clocks.pclk2().0 / 1_000_000);
         rprintln!(" ADCCLK: {:?} MHz", clocks.adcclk().0 / 1_000_000);
+        assert!(clocks.usbclk_valid());
 
         // Countdown timer setup.
         let mut scope_timer =
@@ -77,6 +87,24 @@ mod app {
         let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
         let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
         let mut gpioc = dp.GPIOC.split(&mut rcc.apb2);
+
+        // USB serial setup.
+        let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
+        usb_dp.set_low().unwrap(); // Reset USB bus at startup.
+        delay(USB_RESET_PERIOD);
+        let usb_p = usb::Peripheral {
+            usb: dp.USB,
+            pin_dm: gpioa.pa11,
+            pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
+        };
+        *USB_BUS = Some(usb::UsbBus::new(usb_p));
+        let port = usbd_serial::SerialPort::new(USB_BUS.as_ref().unwrap());
+        let usb_dev = UsbDeviceBuilder::new(USB_BUS.as_ref().unwrap(), UsbVidPid(0x16c0, 0x27dd))
+            .manufacturer("Fake corp")
+            .product("Serial port")
+            .serial_number("TEST")
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
 
         // Configure pc13 as output via CR high register.
         let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
@@ -120,6 +148,7 @@ mod app {
             scope,
             scope_timer,
             led_pwm,
+            serial: io::Serial::new(usb_dev, port),
             rtt_down: rtt_channels.down.0,
         }
     }
@@ -200,6 +229,36 @@ mod app {
         });
 
         read_input::schedule(ctx.scheduled + RTT_POLL_PERIOD.cycles()).unwrap();
+    }
+
+    #[task(binds = USB_HP_CAN_TX, resources = [serial])]
+    fn usb_tx(ctx: usb_tx::Context) {
+        let mut serial = ctx.resources.serial;
+        serial.lock(|serial| {
+            let count = serial.poll();
+            if count > 0 {
+                let mut result = [0u8; 64];
+                let plen = serial.read_packet(&mut result[..]).unwrap();
+                if plen > 0 {
+                    rprintln!("read packet: {:?}", &result[..plen]);
+                }
+            }
+        });
+    }
+
+    #[task(binds = USB_LP_CAN_RX0, resources = [serial])]
+    fn usb_rx(ctx: usb_rx::Context) {
+        let mut serial = ctx.resources.serial;
+        serial.lock(|serial| {
+            let count = serial.poll();
+            if count > 0 {
+                let mut result = [0u8; 64];
+                let plen = serial.read_packet(&mut result[..]).unwrap();
+                if plen > 0 {
+                    rprintln!("read packet: {:?}", &result[..plen]);
+                }
+            }
+        });
     }
 }
 

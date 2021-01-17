@@ -9,11 +9,20 @@ cortex-m = "0.6"
 cortex-m-rt = { version = "0.6.8", features = ["device"] }
 cortex-m-rtic = "0.6.0-alpha.0"
 embedded-hal = "0.2.3"
+heapless = "0.5.6"
 mutex-trait = "0.2"
 rtic-core = "0.3"
 rtt-target = { version = "0.3.0", features = ["cortex-m"] }
-stm32f1xx-hal = { version = "0.7", features = ["rt", "stm32f103", "medium" ] }
+stm32-usbd = "0.5.1"
+stm32f1xx-hal = { version = "0.7", features = ["rt", "stm32f103", "medium", "stm32-usbd" ] }
+usb-device = "0.2.7"
+usbd-serial = "0.1.1"
+
+# Debug info does not occupy flash
+[profile.release]
+debug = true
 
 # Optimize dependencies for a smaller debug binary.
 [profile.dev.package."*"]
+codegen-units = 1
 opt-level = "z"
