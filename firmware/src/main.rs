@@ -235,13 +235,10 @@ mod app {
     fn usb_tx(ctx: usb_tx::Context) {
         let mut serial = ctx.resources.serial;
         serial.lock(|serial| {
-            let count = serial.poll();
-            if count > 0 {
-                let mut result = [0u8; 64];
-                let plen = serial.read_packet(&mut result[..]).unwrap();
-                if plen > 0 {
-                    rprintln!("read packet: {:?}", &result[..plen]);
-                }
+            let mut result = [0u8; 64];
+            let size = serial.read_packet(&mut result[..]).unwrap();
+            if size > 0 {
+                rprintln!("read packet: {:?}", &result[..size]);
             }
         });
     }
@@ -250,13 +247,10 @@ mod app {
     fn usb_rx(ctx: usb_rx::Context) {
         let mut serial = ctx.resources.serial;
         serial.lock(|serial| {
-            let count = serial.poll();
-            if count > 0 {
-                let mut result = [0u8; 64];
-                let plen = serial.read_packet(&mut result[..]).unwrap();
-                if plen > 0 {
-                    rprintln!("read packet: {:?}", &result[..plen]);
-                }
+            let mut result = [0u8; 64];
+            let size = serial.read_packet(&mut result[..]).unwrap();
+            if size > 0 {
+                rprintln!("read packet: {:?}", &result[..size]);
             }
         });
     }

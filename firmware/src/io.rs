@@ -1,4 +1,3 @@
-use rtt_target::rprintln;
 use stm32f1xx_hal::usb;
 use usb_device::prelude::*;
 
@@ -12,7 +11,7 @@ pub struct Serial {
     pub usb_dev: UsbDevice<'static, usb::UsbBusType>,
     pub port: usbd_serial::SerialPort<'static, usb::UsbBusType>,
     pub buf: [u8; BUF_SIZE],
-    pub buf_i: usize,
+    pub buf_next: usize, // Next index to write in buf.
 }
 
 impl Serial {
@@ -21,61 +20,65 @@ impl Serial {
             usb_dev,
             port,
             buf: [0u8; BUF_SIZE],
-            buf_i: 0,
+            buf_next: 0,
         }
     }
 
-    /// Polls the USB serial port, reading bytes into `Serial.buf`.
-    pub fn poll(&mut self) -> usize {
-        let Serial {
-            usb_dev,
-            port,
-            buf,
-            buf_i,
-        } = self;
-
-        if !usb_dev.poll(&mut [port]) {
-            return 0;
-        }
-
-        match port.read(&mut buf[*buf_i..]) {
-            Ok(count) => {
-                *buf_i += count;
-                rprintln!("got {} bytes", count);
-                count
-            }
-            Err(_) => 0,
-        }
-    }
-
-    pub fn read_packet(&mut self, packet_buf: &mut [u8]) -> Result<usize, &str> {
-        if self.buf_i == 0 {
+    /// Attempts to read a packet from the USB serial port, buffering incomplete packets
+    /// for a future attempt.
+    pub fn read_packet(&mut self, packet_buf: &mut [u8]) -> Result<usize, UsbError> {
+        if self.poll()? == 0 {
+            // No new serial data to process.
             return Ok(0);
         }
 
-        for i in 0..self.buf_i {
+        for i in 0..self.buf_next {
             if self.buf[i] == TERMINATOR {
-                if i + 1 != self.buf_i {
-                    // TODO shift buffer to eliminate read bytes.
-                    panic!(
-                        "TERMINATOR at {} is not at end of buffer ({}) - 1",
-                        i, self.buf_i
-                    );
-                }
-
                 if i > packet_buf.len() {
-                    return Err("provided packet buffer too small");
+                    return Err(UsbError::BufferOverflow);
                 }
 
-                // Reset Serial buffer write index, copy packet to provided buffer.
-                self.buf_i = 0;
-
+                // Copy a complete packet to provided buffer.
                 &packet_buf[..i].copy_from_slice(&self.buf[..i]);
+
+                if i + 1 == self.buf_next {
+                    // Buffer is now empty, reset index.
+                    self.buf_next = 0;
+                } else {
+                    // Move trailing data to start of buffer, skipping terminator.
+                    let start = i + 1;
+                    self.buf.copy_within(start..self.buf_next, 0);
+                    self.buf_next -= start;
+                }
+
                 return Ok(i);
             }
         }
 
-        // No terminator found, packet currently incomplete.
+        // No terminator found; packet is not yet complete.
         Ok(0)
+    }
+
+    /// Polls the USB serial port, reading bytes into `Serial.buf`.
+    fn poll(&mut self) -> Result<usize, UsbError> {
+        let Serial {
+            usb_dev,
+            port,
+            buf,
+            buf_next,
+        } = self;
+
+        if !usb_dev.poll(&mut [port]) {
+            return Ok(0);
+        }
+
+        match port.read(&mut buf[*buf_next..]) {
+            Ok(count) => {
+                *buf_next += count;
+                Ok(count)
+            }
+            Err(UsbError::WouldBlock) => Ok(0),
+            Err(error) => Err(error),
+        }
     }
 }
