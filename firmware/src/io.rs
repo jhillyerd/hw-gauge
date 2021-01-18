@@ -1,7 +1,7 @@
 use stm32f1xx_hal::usb;
 use usb_device::prelude::*;
 
-const BUF_SIZE: usize = 64;
+pub const BUF_BYTES: usize = 64;
 const TERMINATOR: u8 = 13;
 
 type StmUsbDevice = UsbDevice<'static, usb::UsbBusType>;
@@ -10,7 +10,7 @@ type StmSerialPort = usbd_serial::SerialPort<'static, usb::UsbBusType>;
 pub struct Serial {
     pub usb_dev: UsbDevice<'static, usb::UsbBusType>,
     pub port: usbd_serial::SerialPort<'static, usb::UsbBusType>,
-    pub buf: [u8; BUF_SIZE],
+    pub buf: [u8; BUF_BYTES],
     pub buf_next: usize, // Next index to write in buf.
 }
 
@@ -19,7 +19,7 @@ impl Serial {
         Serial {
             usb_dev,
             port,
-            buf: [0u8; BUF_SIZE],
+            buf: [0u8; BUF_BYTES],
             buf_next: 0,
         }
     }

@@ -28,6 +28,8 @@ mod app {
     // Periods are measured in system clock cycles; smaller is more frequent.
     const RTT_POLL_PERIOD: u32 = SYSCLK_HZ / 5;
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
+    const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
+    const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 
     // Levels for offboard PWM LED blink.
     const PWM_LEVELS: [u16; 8] = [0, 5, 10, 15, 25, 40, 65, 100];
@@ -99,12 +101,15 @@ mod app {
         };
         *USB_BUS = Some(usb::UsbBus::new(usb_p));
         let port = usbd_serial::SerialPort::new(USB_BUS.as_ref().unwrap());
-        let usb_dev = UsbDeviceBuilder::new(USB_BUS.as_ref().unwrap(), UsbVidPid(0x16c0, 0x27dd))
-            .manufacturer("Fake corp")
-            .product("Serial port")
-            .serial_number("TEST")
-            .device_class(usbd_serial::USB_CLASS_CDC)
-            .build();
+        let usb_dev = UsbDeviceBuilder::new(
+            USB_BUS.as_ref().unwrap(),
+            UsbVidPid(USB_VENDOR_ID, USB_PRODUCT_ID),
+        )
+        .manufacturer("JHillyerd")
+        .product("System monitor")
+        .serial_number("TEST")
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
 
         // Configure pc13 as output via CR high register.
         let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
@@ -232,27 +237,31 @@ mod app {
     }
 
     #[task(binds = USB_HP_CAN_TX, resources = [serial])]
-    fn usb_tx(ctx: usb_tx::Context) {
+    fn usb_high(ctx: usb_high::Context) {
         let mut serial = ctx.resources.serial;
-        serial.lock(|serial| {
-            let mut result = [0u8; 64];
-            let size = serial.read_packet(&mut result[..]).unwrap();
-            if size > 0 {
-                rprintln!("read packet: {:?}", &result[..size]);
-            }
-        });
+        serial.lock(|serial| crate::handle_usb_event(serial));
     }
 
     #[task(binds = USB_LP_CAN_RX0, resources = [serial])]
-    fn usb_rx(ctx: usb_rx::Context) {
+    fn usb_low(ctx: usb_low::Context) {
         let mut serial = ctx.resources.serial;
-        serial.lock(|serial| {
-            let mut result = [0u8; 64];
-            let size = serial.read_packet(&mut result[..]).unwrap();
-            if size > 0 {
-                rprintln!("read packet: {:?}", &result[..size]);
-            }
-        });
+        serial.lock(|serial| crate::handle_usb_event(serial));
+    }
+
+    #[task]
+    fn handle_packet(_ctx: handle_packet::Context, buf: [u8; io::BUF_BYTES], len: usize) {
+        let s = core::str::from_utf8(&buf[..len]).unwrap_or("BAD UTF8");
+        rprintln!("handle packet: {:?}", s);
+    }
+}
+
+/// Handles high and low priority USB interrupts.
+fn handle_usb_event(serial: &mut io::Serial) {
+    let mut result = [0u8; io::BUF_BYTES];
+    let len = serial.read_packet(&mut result[..]).unwrap();
+    if len > 0 {
+        app::handle_packet::spawn(result, len).unwrap();
+        rprintln!("rx read packet: {:?}", &result[..len]);
     }
 }
 
