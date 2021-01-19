@@ -26,6 +26,7 @@ mod app {
     const SYSCLK_HZ: u32 = 72_000_000;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
+    const PULSE_LED_PERIOD: u32 = SYSCLK_HZ / 40;
     const RTT_POLL_PERIOD: u32 = SYSCLK_HZ / 5;
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
@@ -34,12 +35,15 @@ mod app {
     // Levels for offboard PWM LED blink.
     const PWM_LEVELS: [u16; 8] = [0, 5, 10, 15, 25, 40, 65, 100];
     type PwmLED = gpioa::PA6<Alternate<PushPull>>;
+    type ActivityLED = gpioc::PC13<Output<PushPull>>;
 
     #[resources]
     struct Resources {
         #[init(0)]
         pwm_level: usize, // Index into PWM_LEVELS.
-        led: gpioc::PC13<Output<PushPull>>,
+        led: ActivityLED,
+        #[init(false)]
+        pulse_led: bool,
         scope: gpioa::PA4<Output<PushPull>>,
         scope_timer: timer::CountDownTimer<pac::TIM2>,
         led_pwm: pwm::Pwm<pac::TIM3, timer::Tim3NoRemap, pwm::C1, PwmLED>,
@@ -131,7 +135,8 @@ mod app {
         led_pwm.enable(pwm::Channel::C1);
 
         // Start scheduled tasks.
-        blink_led::spawn().unwrap();
+        // TODO: switch to spawn after https://github.com/rtic-rs/cortex-m-rtic/issues/403
+        pulse_led::schedule(ctx.start).unwrap();
         read_input::spawn().unwrap();
 
         // Prevent wait-for-interrupt (default rtic idle) from stalling debug features.
@@ -158,12 +163,20 @@ mod app {
         }
     }
 
-    #[task(resources = [led])]
-    fn blink_led(mut ctx: blink_led::Context) {
-        ctx.resources.led.lock(|led| led.toggle().unwrap());
+    #[task(resources = [led, pulse_led])]
+    fn pulse_led(ctx: pulse_led::Context) {
+        let pulse_led::Resources { led, pulse_led } = ctx.resources;
 
-        // Schedule next blink.
-        blink_led::schedule(ctx.scheduled + SYSCLK_HZ.cycles()).unwrap();
+        (led, pulse_led).lock(|led: &mut ActivityLED, pulse_led| {
+            if *pulse_led {
+                led.set_low().ok();
+                *pulse_led = false;
+            } else {
+                led.set_high().ok();
+            }
+        });
+
+        pulse_led::schedule(ctx.scheduled + PULSE_LED_PERIOD.cycles()).unwrap();
     }
 
     #[task(binds = TIM2, priority = 3, resources = [scope, scope_timer])]
@@ -236,16 +249,22 @@ mod app {
         read_input::schedule(ctx.scheduled + RTT_POLL_PERIOD.cycles()).unwrap();
     }
 
-    #[task(binds = USB_HP_CAN_TX, resources = [serial])]
+    #[task(binds = USB_HP_CAN_TX, resources = [serial, pulse_led])]
     fn usb_high(ctx: usb_high::Context) {
-        let mut serial = ctx.resources.serial;
-        serial.lock(|serial| crate::handle_usb_event(serial));
+        let usb_high::Resources { serial, pulse_led } = ctx.resources;
+        (serial, pulse_led).lock(|serial, pulse_led| {
+            crate::handle_usb_event(serial);
+            *pulse_led = true;
+        });
     }
 
-    #[task(binds = USB_LP_CAN_RX0, resources = [serial])]
+    #[task(binds = USB_LP_CAN_RX0, resources = [serial, pulse_led])]
     fn usb_low(ctx: usb_low::Context) {
-        let mut serial = ctx.resources.serial;
-        serial.lock(|serial| crate::handle_usb_event(serial));
+        let usb_low::Resources { serial, pulse_led } = ctx.resources;
+        (serial, pulse_led).lock(|serial, pulse_led| {
+            crate::handle_usb_event(serial);
+            *pulse_led = true;
+        });
     }
 
     #[task]
@@ -261,7 +280,6 @@ fn handle_usb_event(serial: &mut io::Serial) {
     let len = serial.read_packet(&mut result[..]).unwrap();
     if len > 0 {
         app::handle_packet::spawn(result, len).unwrap();
-        rprintln!("rx read packet: {:?}", &result[..len]);
     }
 }
 
