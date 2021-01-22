@@ -6,21 +6,39 @@ edition = "2018"
 
 [dependencies]
 cortex-m = "0.6"
-cortex-m-rt = { version = "0.6.8", features = ["device"] }
+cortex-m-rt = { version = "0.6.13", features = ["device"] }
 cortex-m-rtic = "0.6.0-alpha.0"
+defmt = "0.1.2"
+defmt-rtt = "0.1.0"
 embedded-hal = "0.2.3"
 heapless = "0.5.6"
 mutex-trait = "0.2"
+panic-probe = { version = "0.1.0", features = ["print-defmt"] }
 rtic-core = "0.3"
-rtt-target = { version = "0.3.0", features = ["cortex-m"] }
 stm32-usbd = "0.5.1"
 stm32f1xx-hal = { version = "0.7", features = ["rt", "stm32f103", "medium", "stm32-usbd" ] }
 usb-device = "0.2.7"
 usbd-serial = "0.1.1"
 
+[features]
+# set logging levels here
+default = [
+  "defmt-default",
+  # "dependency-a/defmt-trace",
+]
+
+# Do not modify these features
+defmt-default = []
+defmt-trace = []
+defmt-debug = []
+defmt-info = []
+defmt-warn = []
+defmt-error = []
+
 # Debug info does not occupy flash
 [profile.release]
 debug = true
+opt-level = "z"
 
 # Optimize dependencies for a smaller debug binary.
 [profile.dev.package."*"]

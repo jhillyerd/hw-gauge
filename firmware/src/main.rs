@@ -1,7 +1,9 @@
 #![no_main]
 #![no_std]
 
-use rtt_target::rprintln;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use defmt_rtt as _;
+use panic_probe as _;
 
 mod io;
 
@@ -15,10 +17,10 @@ mod app {
     use crate::io;
     use crate::Direction;
     use cortex_m::asm::delay;
+    use defmt::info;
     use embedded_hal::digital::v2::*;
     use rtic::cyccnt::U32Ext;
     use rtic_core::prelude::*;
-    use rtt_target::rprintln;
     use stm32f1xx_hal::{gpio::*, pac, prelude::*, pwm, rcc::Clocks, timer, usb};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
@@ -27,7 +29,6 @@ mod app {
 
     // Periods are measured in system clock cycles; smaller is more frequent.
     const PULSE_LED_PERIOD: u32 = SYSCLK_HZ / 40;
-    const RTT_POLL_PERIOD: u32 = SYSCLK_HZ / 5;
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
@@ -48,19 +49,13 @@ mod app {
         scope_timer: timer::CountDownTimer<pac::TIM2>,
         led_pwm: pwm::Pwm<pac::TIM3, timer::Tim3NoRemap, pwm::C1, PwmLED>,
         serial: io::Serial,
-        // Used to read input from host over RTT.
-        rtt_down: rtt_target::DownChannel,
     }
 
     #[init]
     fn init(ctx: init::Context) -> init::LateResources {
         static mut USB_BUS: Option<UsbBusAllocator<usb::UsbBusType>> = None;
 
-        // Initialize RTT communication with host.
-        let rtt_channels = rtt_target::rtt_init_default!();
-        rtt_target::set_print_channel(rtt_channels.up.0);
-
-        rprintln!("RTIC 0.6 init started");
+        info!("RTIC 0.6 init started");
         let mut cp = ctx.core;
         let dp: pac::Peripherals = ctx.device;
 
@@ -76,13 +71,7 @@ mod app {
             .sysclk(SYSCLK_HZ.hz())
             .pclk1((SYSCLK_HZ / 2).hz())
             .freeze(&mut flash.acr);
-        rprintln!(" SYSCLK: {:?} MHz", clocks.sysclk().0 / 1_000_000);
-        rprintln!(" HCLK: {:?} MHz", clocks.hclk().0 / 1_000_000);
-        rprintln!(" APB1 clk: {:?} MHz", clocks.pclk1().0 / 1_000_000);
-        rprintln!(" APB1 TIM: {:?} MHz", clocks.pclk1_tim().0 / 1_000_000);
-        rprintln!(" APB2 clk: {:?} MHz", clocks.pclk2().0 / 1_000_000);
-        rprintln!(" ADCCLK: {:?} MHz", clocks.adcclk().0 / 1_000_000);
-        assert!(clocks.usbclk_valid());
+        defmt::assert!(clocks.usbclk_valid());
 
         // Countdown timer setup.
         let mut scope_timer =
@@ -137,7 +126,6 @@ mod app {
         // Start scheduled tasks.
         // TODO: switch to spawn after https://github.com/rtic-rs/cortex-m-rtic/issues/403
         pulse_led::schedule(ctx.start).unwrap();
-        read_input::spawn().unwrap();
 
         // Prevent wait-for-interrupt (default rtic idle) from stalling debug features.
         //
@@ -149,9 +137,7 @@ mod app {
         });
         let _dma1 = dp.DMA1.split(&mut rcc.ahb);
 
-        rprintln!("RTIC init completed");
-
-        rprintln!("You may enter a PWM frequency in HZ for PA6:");
+        info!("RTIC init completed");
 
         init::LateResources {
             led,
@@ -159,7 +145,6 @@ mod app {
             scope_timer,
             led_pwm,
             serial: io::Serial::new(usb_dev, port),
-            rtt_down: rtt_channels.down.0,
         }
     }
 
@@ -210,43 +195,11 @@ mod app {
             let max_duty = led_pwm.get_max_duty();
             let duty = max_duty / 100 * PWM_LEVELS[*pwm_level];
             led_pwm.set_duty(pwm::Channel::C1, duty);
-            rprintln!(
-                "led_pwm duty = {}% ({} / {})",
-                PWM_LEVELS[*pwm_level],
-                duty,
-                max_duty
+            info!(
+                "led_pwm duty = {:?}% ({:?} / {:?})",
+                PWM_LEVELS[*pwm_level], duty, max_duty
             );
         });
-    }
-
-    #[task(resources = [rtt_down, led_pwm])]
-    fn read_input(ctx: read_input::Context) {
-        let read_input::Resources { rtt_down, led_pwm } = ctx.resources;
-
-        (rtt_down, led_pwm).lock(|rtt_down, led_pwm| {
-            let mut buf = [0u8; 100];
-            let count = rtt_down.read(&mut buf);
-            if count > 1 {
-                // `count` bytes includes carriage return.
-                let mut input_num = 0i32;
-                for c in buf[..count - 1].iter() {
-                    if '0' as u8 <= *c && *c <= '9' as u8 {
-                        input_num *= 10;
-                        input_num += (*c - '0' as u8) as i32;
-                    } else {
-                        rprintln!("invalid numeral: '{}'", *c as char);
-                        input_num = -1;
-                        break;
-                    }
-                }
-                if input_num >= 0 {
-                    rprintln!("Setting LED pwm frequency to: {}", input_num);
-                    led_pwm.set_period((input_num as u32).hz());
-                }
-            }
-        });
-
-        read_input::schedule(ctx.scheduled + RTT_POLL_PERIOD.cycles()).unwrap();
     }
 
     #[task(binds = USB_HP_CAN_TX, resources = [serial, pulse_led])]
@@ -270,7 +223,7 @@ mod app {
     #[task]
     fn handle_packet(_ctx: handle_packet::Context, buf: [u8; io::BUF_BYTES], len: usize) {
         let s = core::str::from_utf8(&buf[..len]).unwrap_or("BAD UTF8");
-        rprintln!("handle packet: {:?}", s);
+        info!("handle packet: {:?}", s);
     }
 }
 
@@ -289,9 +242,11 @@ pub enum Direction {
     Up,
 }
 
-#[inline(never)]
-#[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    rprintln!("{}", info);
-    loop {}
+#[defmt::timestamp]
+fn timestamp() -> u64 {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    // NOTE(no-CAS) `timestamps` runs with interrupts disabled
+    let n = COUNT.load(Ordering::Relaxed);
+    COUNT.store(n + 1, Ordering::Relaxed);
+    n as u64
 }
