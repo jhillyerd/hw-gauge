@@ -17,10 +17,12 @@ mod app {
     use crate::io;
     use crate::Direction;
     use cortex_m::asm::delay;
-    use defmt::info;
+    use defmt::{error, info};
     use embedded_hal::digital::v2::*;
+    use postcard;
     use rtic::cyccnt::U32Ext;
     use rtic_core::prelude::*;
+    use shared::message;
     use stm32f1xx_hal::{gpio::*, pac, prelude::*, pwm, rcc::Clocks, timer, usb};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
@@ -221,9 +223,15 @@ mod app {
     }
 
     #[task]
-    fn handle_packet(_ctx: handle_packet::Context, buf: [u8; io::BUF_BYTES], len: usize) {
-        let s = core::str::from_utf8(&buf[..len]).unwrap_or("BAD UTF8");
-        info!("handle packet: {:?}", s);
+    fn handle_packet(_ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
+        let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
+        match msg {
+            Ok(msg) => info!("got message: {:?}", msg),
+            Err(_) => {
+                error!("failed to deserialize message");
+                cortex_m::asm::bkpt();
+            }
+        }
     }
 }
 
@@ -232,7 +240,7 @@ fn handle_usb_event(serial: &mut io::Serial) {
     let mut result = [0u8; io::BUF_BYTES];
     let len = serial.read_packet(&mut result[..]).unwrap();
     if len > 0 {
-        app::handle_packet::spawn(result, len).unwrap();
+        app::handle_packet::spawn(result).unwrap();
     }
 }
 

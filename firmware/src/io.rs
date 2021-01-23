@@ -2,7 +2,7 @@ use stm32f1xx_hal::usb;
 use usb_device::prelude::*;
 
 pub const BUF_BYTES: usize = 64;
-const TERMINATOR: u8 = 13;
+const TERMINATOR: u8 = 0;
 
 type StmUsbDevice = UsbDevice<'static, usb::UsbBusType>;
 type StmSerialPort = usbd_serial::SerialPort<'static, usb::UsbBusType>;

@@ -14,7 +14,9 @@ embedded-hal = "0.2.3"
 heapless = "0.5.6"
 mutex-trait = "0.2"
 panic-probe = { version = "0.1.0", features = ["print-defmt"] }
+postcard = "0.5.1"
 rtic-core = "0.3"
+shared = { path = "../shared" }
 stm32-usbd = "0.5.1"
 stm32f1xx-hal = { version = "0.7", features = ["rt", "stm32f103", "medium", "stm32-usbd" ] }
 usb-device = "0.2.7"
