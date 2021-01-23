@@ -15,8 +15,8 @@ mod io;
     dispatchers = [SPI1, SPI2]
 )]
 mod app {
-    use crate::io;
     use crate::Direction;
+    use crate::{gfx, io};
     use cortex_m::asm::delay;
     use defmt::{error, info};
     use embedded_hal::digital::v2::*;
@@ -24,7 +24,8 @@ mod app {
     use rtic::cyccnt::U32Ext;
     use rtic_core::prelude::*;
     use shared::message;
-    use stm32f1xx_hal::{gpio::*, pac, prelude::*, pwm, rcc::Clocks, timer, usb};
+    use ssd1306::prelude::*;
+    use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, pwm, rcc::Clocks, timer, usb};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
     // Frequency of the system clock, which will also be the frequency of CYCCNT.
@@ -41,6 +42,20 @@ mod app {
     type PwmLED = gpioa::PA6<Alternate<PushPull>>;
     type ActivityLED = gpioc::PC13<Output<PushPull>>;
 
+    // 128x64 OLED I2C display.
+    type Display = ssd1306::mode::GraphicsMode<
+        I2CInterface<
+            i2c::BlockingI2c<
+                pac::I2C2,
+                (
+                    gpiob::PB10<Alternate<OpenDrain>>,
+                    gpiob::PB11<Alternate<OpenDrain>>,
+                ),
+            >,
+        >,
+        DisplaySize128x64,
+    >;
+
     #[resources]
     struct Resources {
         #[init(0)]
@@ -52,6 +67,7 @@ mod app {
         scope_timer: timer::CountDownTimer<pac::TIM2>,
         led_pwm: pwm::Pwm<pac::TIM3, timer::Tim3NoRemap, pwm::C1, PwmLED>,
         serial: io::Serial,
+        display: Display,
     }
 
     #[init]
@@ -84,6 +100,7 @@ mod app {
         // Peripheral setup.
         let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
         let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
+        let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
         let mut gpioc = dp.GPIOC.split(&mut rcc.apb2);
 
         // USB serial setup.
@@ -106,6 +123,28 @@ mod app {
         .serial_number("TEST")
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
+
+        // I2C setup.
+        let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
+        let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
+        let i2c2 = i2c::BlockingI2c::i2c2(
+            dp.I2C2,
+            (scl, sda),
+            i2c::Mode::fast(400_000.hz(), i2c::DutyCycle::Ratio2to1),
+            clocks,
+            &mut rcc.apb1,
+            1000,
+            10,
+            1000,
+            1000,
+        );
+
+        // Display setup.
+        let disp_if = ssd1306::I2CDIBuilder::new().init(i2c2);
+        let mut display: GraphicsMode<_, _> = ssd1306::Builder::new().connect(disp_if).into();
+        display.init().unwrap();
+        display.clear();
+        display.flush().unwrap();
 
         // Configure pc13 as output via CR high register.
         let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
@@ -148,6 +187,7 @@ mod app {
             scope_timer,
             led_pwm,
             serial: io::Serial::new(usb_dev, port),
+            display,
         }
     }
 
@@ -223,11 +263,24 @@ mod app {
         });
     }
 
-    #[task]
-    fn handle_packet(_ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
+    #[task(resources = [display])]
+    fn handle_packet(ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
+        let mut display = ctx.resources.display;
+
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
-            Ok(msg) => info!("got message: {:?}", msg),
+            Ok(msg) => {
+                info!("got message: {:?}", msg);
+                match msg {
+                    message::FromHost::ShowPerf(perf_data) => {
+                        display.lock(|display| {
+                            gfx::draw(display, &perf_data).unwrap();
+                            display.flush().unwrap();
+                        });
+                    }
+                    _ => {}
+                }
+            }
             Err(_) => {
                 error!("failed to deserialize message");
                 cortex_m::asm::bkpt();

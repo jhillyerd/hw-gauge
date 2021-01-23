@@ -2,20 +2,19 @@ use embedded_graphics::{
     fonts::{Font6x8, Text},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Rectangle, RoundedRectangle},
-    style::{MonoTextStyleBuilder, PrimitiveStyleBuilder},
+    primitives::Rectangle,
+    style::{PrimitiveStyleBuilder, TextStyleBuilder},
 };
 use shared::message;
 
 const WIDTH: i32 = 128;
-const HEIGHT: i32 = 64;
 const MARGIN: i32 = 5;
 
-fn draw<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
+pub fn draw<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
 where
-    T: DrawTarget<Color = BinaryColor>,
+    T: DrawTarget<BinaryColor>,
 {
-    let text = MonoTextStyleBuilder::new(Font6x8)
+    let text = TextStyleBuilder::new(Font6x8)
         .text_color(BinaryColor::On)
         .build();
 
@@ -26,7 +25,8 @@ where
         .draw(display)?;
 
     double_bar_graph(
-        &mut display.translated(Point::new(MARGIN, 14)),
+        display,
+        Point::new(MARGIN, 14),
         Size::new((WIDTH - MARGIN * 2) as u32, 10),
         perf.all_cores_load,
         perf.peak_core_load,
@@ -37,12 +37,13 @@ where
 
 fn double_bar_graph<T>(
     display: &mut T,
+    offset: Point,
     size: Size,
     low_val: f32,
     high_val: f32,
 ) -> Result<(), T::Error>
 where
-    T: DrawTarget<Color = BinaryColor>,
+    T: DrawTarget<BinaryColor>,
 {
     let outline = PrimitiveStyleBuilder::new()
         .stroke_color(BinaryColor::On)
@@ -54,21 +55,21 @@ where
         .fill_color(BinaryColor::On)
         .build();
 
-    let height = size.height;
-    let width = ((size.width as f32) * high_val) as u32;
+    let height = size.height as i32;
+    let width = ((size.width as f32) * high_val) as i32;
 
-    RoundedRectangle::with_equal_corners(
-        Rectangle::new(Point::new(0, 0), Size::new(width, height)),
-        Size::new(2, 2),
+    Rectangle::new(
+        Point::new(0, 0) + offset,
+        Point::new(width, height) + offset,
     )
     .into_styled(outline)
     .draw(display)?;
 
-    let width = ((size.width as f32) * low_val) as u32;
+    let width = ((size.width as f32) * low_val) as i32;
 
-    RoundedRectangle::with_equal_corners(
-        Rectangle::new(Point::new(0, 0), Size::new(width, height)),
-        Size::new(2, 2),
+    Rectangle::new(
+        Point::new(0, 0) + offset,
+        Point::new(width, height) + offset,
     )
     .into_styled(solid)
     .draw(display)?;
