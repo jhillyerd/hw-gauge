@@ -1,4 +1,7 @@
+use postcard;
 use serialport::{SerialPort, SerialPortInfo, SerialPortType};
+use shared::message;
+use std::io::Write;
 use std::thread;
 use std::time::Duration;
 use systemstat::{data::CPULoad, Platform, System};
@@ -36,22 +39,31 @@ fn open_port(port_info: &SerialPortInfo) -> Result<Box<dyn SerialPort>, serialpo
 
 /// CPU load.
 fn print_load(w: &mut Box<dyn SerialPort>) {
+    // Capture CPU metrics.
     let sys = System::new();
     let cpu_load = sys.cpu_load().unwrap();
     let load_agg = sys.cpu_load_aggregate().unwrap();
-
     thread::sleep(Duration::from_secs(1));
-
     let load_agg = load_agg.done().unwrap();
-    write!(w, "aggregate: {:.2}\r", total_load(&load_agg) * 100.0).unwrap();
 
+    // Select least idle core.
     let cpu_load = cpu_load.done().unwrap();
     let min_idle = cpu_load
         .iter()
         .min_by(|a, b| a.idle.partial_cmp(&b.idle).unwrap());
-    if let Some(min_idle) = min_idle {
-        write!(w, "peak core: {:.2}\r", total_load(min_idle) * 100.0).unwrap();
-    }
+
+    let perf = message::PerfData {
+        all_cores_load: total_load(&load_agg),
+        peak_core_load: total_load(min_idle.unwrap_or(&load_agg)),
+    };
+
+    let msg = message::FromHost::ShowPerf(perf);
+    println!("About to send: {:?}", msg);
+
+    let msg_bytes = postcard::to_allocvec_cobs(&msg).unwrap();
+    let result = w.write(&msg_bytes);
+
+    println!("Send status: {:?}", result);
 }
 
 fn total_load(load: &CPULoad) -> f32 {
