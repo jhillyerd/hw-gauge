@@ -48,3 +48,8 @@ opt-level = "z"
 [profile.dev.package."*"]
 codegen-units = 1
 opt-level = "z"
+
+[[bin]]
+name = "hw-cpu-firmware"
+test = false
+bench = false
