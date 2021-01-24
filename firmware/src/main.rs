@@ -16,13 +16,13 @@ mod io;
 )]
 mod app {
     use crate::{gfx, io};
-    use cortex_m::asm::delay;
-    use defmt::{error, info};
+    use cortex_m::asm;
+    use defmt::{debug, error, info};
     use embedded_hal::digital::v2::*;
     use postcard;
     use rtic::cyccnt::U32Ext;
     use rtic_core::prelude::*;
-    use shared::message;
+    use shared::{message, message::PerfData};
     use ssd1306::prelude::*;
     use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, rcc::Clocks, timer, usb};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
@@ -56,10 +56,16 @@ mod app {
     #[resources]
     struct Resources {
         led: ActivityLED,
-        #[init(false)]
-        pulse_led: bool, // Blinks ActivityLED briefly when true.
         serial: io::Serial,
         display: Display,
+
+        // Blinks ActivityLED briefly when set true.
+        #[init(false)]
+        pulse_led: bool,
+
+        // Previously received perf data message.
+        #[init(None)]
+        prev_perf: Option<PerfData>,
     }
 
     #[init]
@@ -97,7 +103,7 @@ mod app {
         // USB serial setup.
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
         usb_dp.set_low().unwrap(); // Reset USB bus at startup.
-        delay(USB_RESET_PERIOD);
+        asm::delay(USB_RESET_PERIOD);
         let usb_p = usb::Peripheral {
             usb: dp.USB,
             pin_dm: gpioa.pa11,
@@ -142,7 +148,7 @@ mod app {
         led.set_high().unwrap(); // LED off
 
         // Start scheduled tasks.
-        // TODO: switch to spawn after https://github.com/rtic-rs/cortex-m-rtic/issues/403
+        // TODO: Switch to spawn after https://github.com/rtic-rs/cortex-m-rtic/issues/403
         pulse_led::schedule(ctx.start).unwrap();
 
         // Prevent wait-for-interrupt (default rtic idle) from stalling debug features.
@@ -198,29 +204,72 @@ mod app {
         });
     }
 
-    #[task(resources = [display])]
-    fn handle_packet(ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
-        let mut display = ctx.resources.display;
-
+    #[task]
+    fn handle_packet(_ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
-                info!("got message: {:?}", msg);
+                debug!("Rx message: {:?}", msg);
                 match msg {
                     message::FromHost::ShowPerf(perf_data) => {
-                        display.lock(|display| {
-                            gfx::draw(display, &perf_data).unwrap();
-                            display.flush().unwrap();
-                        });
+                        show_perf::spawn(Some(perf_data)).ok();
                     }
                     _ => {}
                 }
             }
             Err(_) => {
-                error!("failed to deserialize message");
-                cortex_m::asm::bkpt();
+                error!("Failed to deserialize message");
+                asm::bkpt();
             }
         }
+    }
+
+    /// Displays PerfData smoothly, by averaging new_perf with prev_perf.  It then updates
+    /// prev_perf, and schedules itself to display that value directly.
+    #[task(resources = [prev_perf, display])]
+    fn show_perf(ctx: show_perf::Context, new_perf: Option<PerfData>) {
+        let show_perf::Resources { prev_perf, display } = ctx.resources;
+
+        if let Some(_) = new_perf {
+            // Schedule a follow-up show_perf that will show unaltered prev_perf values.
+            show_perf::spawn(None).ok();
+        } else {
+            // This is the follow-up schedule above, wait for a bit.
+            // TODO: Replace this with a normal schedule when RTIC monotonic is fixed.
+            asm::delay(SYSCLK_HZ / 2);
+        }
+
+        (prev_perf, display).lock(|prev_perf: &mut Option<PerfData>, display: &mut Display| {
+            let prev_value = prev_perf.take();
+            let perf_data: Option<PerfData> = match (prev_value, new_perf) {
+                (Some(prev), None) => {
+                    *prev_perf = Some(prev);
+                    Some(prev)
+                }
+                (None, Some(new)) => {
+                    *prev_perf = Some(new);
+                    Some(new)
+                }
+                (Some(prev), Some(new)) => {
+                    *prev_perf = Some(new);
+                    Some(PerfData {
+                        all_cores_load: (prev.all_cores_load + new.all_cores_load) / 2.0,
+                        peak_core_load: (prev.peak_core_load + new.peak_core_load) / 2.0,
+                    })
+                }
+                _ => {
+                    error!("No new or previous PerfData");
+                    None
+                }
+            };
+
+            debug!("Will display: {:?}", perf_data);
+
+            if let Some(perf_data) = perf_data {
+                gfx::draw(display, &perf_data).unwrap();
+                display.flush().unwrap();
+            }
+        });
     }
 }
 

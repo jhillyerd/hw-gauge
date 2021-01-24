@@ -7,7 +7,7 @@ pub enum FromHost {
     ShowPerf(PerfData),
 }
 
-#[derive(Debug, Format, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Format, Serialize, Deserialize)]
 pub struct PerfData {
     // Aggregate load of all CPU cores, 0-1.0;
     pub all_cores_load: f32,
