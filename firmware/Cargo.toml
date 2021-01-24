@@ -44,6 +44,11 @@ defmt-error = []
 debug = true
 opt-level = "z"
 
+# Default dev profile doesn't fit in 64KB flash
+[profile.dev]
+debug = true
+opt-level = "z"
+
 # Optimize dependencies for a smaller debug binary.
 [profile.dev.package."*"]
 codegen-units = 1

@@ -17,7 +17,7 @@ mod io;
 mod app {
     use crate::{gfx, io};
     use cortex_m::asm;
-    use defmt::{debug, error, info};
+    use defmt::{assert, debug, error, info};
     use embedded_hal::digital::v2::*;
     use postcard;
     use rtic::cyccnt::U32Ext;
@@ -31,7 +31,7 @@ mod app {
     const SYSCLK_HZ: u32 = 72_000_000;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
-    const PULSE_LED_PERIOD: u32 = SYSCLK_HZ / 40;
+    const PULSE_LED_PERIOD: u32 = SYSCLK_HZ / 10;
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
@@ -88,7 +88,7 @@ mod app {
             .sysclk(SYSCLK_HZ.hz())
             .pclk1((SYSCLK_HZ / 2).hz())
             .freeze(&mut flash.acr);
-        defmt::assert!(clocks.usbclk_valid());
+        assert!(clocks.usbclk_valid());
 
         // Countdown timer setup.
         let mut scope_timer =
@@ -267,7 +267,11 @@ mod app {
 
             if let Some(perf_data) = perf_data {
                 gfx::draw(display, &perf_data).unwrap();
-                display.flush().unwrap();
+                if let Err(_) = display.flush() {
+                    error!("Failed to flush display");
+                    #[cfg(debug_assertions)]
+                    asm::bkpt();
+                }
             }
         });
     }
