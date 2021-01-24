@@ -1,5 +1,5 @@
 use embedded_graphics::{
-    fonts::{Font6x8, Text},
+    fonts::{Font6x12, Text},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::Rectangle,
@@ -7,27 +7,29 @@ use embedded_graphics::{
 };
 use shared::message;
 
-const WIDTH: i32 = 128;
-const MARGIN: i32 = 5;
+const DISP_WIDTH: i32 = 128;
+const X_PAD: i32 = 0;
+const Y_PAD: i32 = 2;
+const LINE_HEIGHT: i32 = 12;
 
 pub fn draw<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
 where
     T: DrawTarget<BinaryColor>,
 {
-    let text = TextStyleBuilder::new(Font6x8)
+    let text = TextStyleBuilder::new(Font6x12)
         .text_color(BinaryColor::On)
         .build();
 
     display.clear(BinaryColor::Off)?;
 
-    Text::new("CPU", Point::new(MARGIN, MARGIN))
+    Text::new("CPU", Point::new(X_PAD, Y_PAD))
         .into_styled(text)
         .draw(display)?;
 
     double_bar_graph(
         display,
-        Point::new(MARGIN, 14),
-        Size::new((WIDTH - MARGIN * 2) as u32, 10),
+        Point::new(X_PAD, Y_PAD * 2 + LINE_HEIGHT),
+        Size::new((DISP_WIDTH - X_PAD * 2) as u32, 10),
         perf.all_cores_load,
         perf.peak_core_load,
     )?;
@@ -45,6 +47,14 @@ fn double_bar_graph<T>(
 where
     T: DrawTarget<BinaryColor>,
 {
+    let height = size.height as i32;
+    let max_x = (size.width - 1) as i32;
+    let max_x_f = max_x as f32;
+    let scale_x = |val: f32| {
+        let x = (max_x_f * val) as i32;
+        x.min(max_x)
+    };
+
     let outline = PrimitiveStyleBuilder::new()
         .stroke_color(BinaryColor::On)
         .stroke_width(1)
@@ -55,21 +65,18 @@ where
         .fill_color(BinaryColor::On)
         .build();
 
-    let height = size.height as i32;
-    let width = ((size.width as f32) * high_val) as i32;
-
+    // Wide, high value bar.
     Rectangle::new(
         Point::new(0, 0) + offset,
-        Point::new(width, height) + offset,
+        Point::new(scale_x(high_val), height) + offset,
     )
     .into_styled(outline)
     .draw(display)?;
 
-    let width = ((size.width as f32) * low_val) as i32;
-
+    // Narrow, low value bar.
     Rectangle::new(
         Point::new(0, 0) + offset,
-        Point::new(width, height) + offset,
+        Point::new(scale_x(low_val), height) + offset,
     )
     .into_styled(solid)
     .draw(display)?;
