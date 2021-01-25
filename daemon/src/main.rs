@@ -15,6 +15,7 @@ const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 const SEND_PERIOD: Duration = Duration::from_secs(1);
 const CPU_POLL_PERIOD: Duration = Duration::from_secs(1);
 const RETRY_DELAY: Duration = Duration::from_secs(10);
+const AVG_CPU_SAMPLES: usize = 30; // Seconds of data for CPU average.
 
 #[derive(Debug)]
 enum Error {
@@ -39,7 +40,7 @@ fn detectsend_loop() -> Result<(), Error> {
     let mut port = open_port(&pinfo)?;
     println!("Sending to detected device on port: {}", pinfo.port_name);
 
-    let mut cpu_avg = Averager::new(60);
+    let mut cpu_avg = Averager::new(AVG_CPU_SAMPLES);
     loop {
         match write_perf_data(&mut port, &mut cpu_avg) {
             Ok(_) => {}
