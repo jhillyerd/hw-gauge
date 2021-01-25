@@ -5,12 +5,14 @@ use embedded_graphics::{
     primitives::Rectangle,
     style::{PrimitiveStyleBuilder, TextStyleBuilder},
 };
+use heapless::{consts::*, String};
 use shared::message;
 
 const DISP_WIDTH: i32 = 128;
 const X_PAD: i32 = 0;
 const Y_PAD: i32 = 2;
-const LINE_HEIGHT: i32 = 12;
+const CHAR_HEIGHT: i32 = 12;
+const CHAR_WIDTH: i32 = 6;
 
 pub fn draw<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
 where
@@ -26,9 +28,21 @@ where
         .into_styled(text)
         .draw(display)?;
 
+    // Average CPU percent display.
+    let mut avg = percent_string(perf.all_cores_avg);
+    avg.push_str("% Avg").unwrap();
+    let avg_width = (avg.len() as i32) * CHAR_WIDTH;
+    Text::new(
+        avg.as_str(),
+        Point::new(DISP_WIDTH - X_PAD - avg_width, Y_PAD),
+    )
+    .into_styled(text)
+    .draw(display)?;
+
+    // All cores and peak core bar graph.
     double_bar_graph(
         display,
-        Point::new(X_PAD, Y_PAD * 2 + LINE_HEIGHT),
+        Point::new(X_PAD, Y_PAD * 2 + CHAR_HEIGHT),
         Size::new((DISP_WIDTH - X_PAD * 2) as u32, 10),
         perf.all_cores_load,
         perf.peak_core_load,
@@ -82,4 +96,26 @@ where
     .draw(display)?;
 
     Ok(())
+}
+
+fn percent_string(ratio: f32) -> String<U10> {
+    fn digit(d: i32) -> char {
+        (('0' as u8) + d as u8) as char
+    }
+
+    let mut num = ((ratio * 1000.0) as i32).min(999);
+    let tenths = num % 10;
+    num /= 10;
+    let ones = num % 10;
+    num /= 10;
+    let tens = num % 10;
+
+    let mut result = String::new();
+    result
+        .push(if tens == 0 { ' ' } else { digit(tens) })
+        .unwrap();
+    result.push(digit(ones)).unwrap();
+    result.push('.').unwrap();
+    result.push(digit(tenths)).unwrap();
+    result
 }

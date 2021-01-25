@@ -254,6 +254,7 @@ mod app {
                     *prev_perf = Some(new);
                     Some(PerfData {
                         all_cores_load: (prev.all_cores_load + new.all_cores_load) / 2.0,
+                        all_cores_avg: new.all_cores_avg,
                         peak_core_load: (prev.peak_core_load + new.peak_core_load) / 2.0,
                     })
                 }
