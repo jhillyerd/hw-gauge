@@ -25,7 +25,7 @@ impl Serial {
     }
 
     /// Attempts to read a packet from the USB serial port, buffering incomplete packets
-    /// for a future attempt.
+    /// for a future attempt.  Returned packets include the terminating byte.
     pub fn read_packet(&mut self, packet_buf: &mut [u8]) -> Result<usize, UsbError> {
         if self.poll()? == 0 {
             // No new serial data to process.
@@ -39,7 +39,7 @@ impl Serial {
                 }
 
                 // Copy a complete packet to provided buffer.
-                &packet_buf[..i].copy_from_slice(&self.buf[..i]);
+                &packet_buf[..i + 1].copy_from_slice(&self.buf[..i + 1]);
 
                 if i + 1 == self.buf_next {
                     // Buffer is now empty, reset index.
@@ -51,7 +51,7 @@ impl Serial {
                     self.buf_next -= start;
                 }
 
-                return Ok(i);
+                return Ok(i + 1);
             }
         }
 

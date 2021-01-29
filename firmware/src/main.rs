@@ -256,6 +256,7 @@ mod app {
                         all_cores_load: (prev.all_cores_load + new.all_cores_load) / 2.0,
                         all_cores_avg: new.all_cores_avg,
                         peak_core_load: (prev.peak_core_load + new.peak_core_load) / 2.0,
+                        memory_load: new.memory_load,
                     })
                 }
                 _ => {
@@ -283,6 +284,9 @@ fn handle_usb_event(serial: &mut io::Serial) {
     let mut result = [0u8; io::BUF_BYTES];
     let len = serial.read_packet(&mut result[..]).unwrap();
     if len > 0 {
+        if result[len - 1] != 0 {
+            defmt::error!("Serial packet did not end in 0");
+        }
         app::handle_packet::spawn(result).unwrap();
     }
 }
