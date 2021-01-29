@@ -3,7 +3,7 @@ use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::Rectangle,
-    style::{PrimitiveStyleBuilder, TextStyleBuilder},
+    style::{PrimitiveStyle, PrimitiveStyleBuilder, TextStyleBuilder},
 };
 use heapless::{consts::*, String};
 use shared::message;
@@ -13,6 +13,7 @@ const X_PAD: i32 = 0;
 const Y_PAD: i32 = 2;
 const CHAR_HEIGHT: i32 = 12;
 const CHAR_WIDTH: i32 = 6;
+const BAR_WIDTH: u32 = (DISP_WIDTH - X_PAD * 2) as u32;
 
 pub fn draw<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
 where
@@ -22,41 +23,88 @@ where
         .text_color(BinaryColor::On)
         .build();
 
+    let outline_bar = PrimitiveStyleBuilder::new()
+        .stroke_color(BinaryColor::On)
+        .stroke_width(1)
+        .fill_color(BinaryColor::Off)
+        .build();
+
+    let solid_bar = PrimitiveStyleBuilder::new()
+        .fill_color(BinaryColor::On)
+        .build();
+
     display.clear(BinaryColor::Off)?;
 
-    Text::new("CPU", Point::new(X_PAD, Y_PAD))
+    Text::new("CPU", Point::new(X_PAD, line_y(0)))
         .into_styled(text)
         .draw(display)?;
 
     // Average CPU percent display.
-    let mut avg = percent_string(perf.all_cores_avg);
+    let mut avg = percent_string(perf.all_cores_avg, true);
     avg.push_str("% Avg").unwrap();
     let avg_width = (avg.len() as i32) * CHAR_WIDTH;
     Text::new(
         avg.as_str(),
-        Point::new(DISP_WIDTH - X_PAD - avg_width, Y_PAD),
+        Point::new(DISP_WIDTH - X_PAD - avg_width, line_y(0)),
     )
     .into_styled(text)
     .draw(display)?;
 
-    // All cores and peak core bar graph.
-    double_bar_graph(
+    // Draw longer peak core load bar.
+    bar_graph(
         display,
-        Point::new(X_PAD, Y_PAD * 2 + CHAR_HEIGHT),
-        Size::new((DISP_WIDTH - X_PAD * 2) as u32, 10),
-        perf.all_cores_load,
+        outline_bar,
+        Point::new(X_PAD, line_y(1)),
+        Size::new(BAR_WIDTH, 10),
         perf.peak_core_load,
+    )?;
+
+    // Draw shorter, overlapping all cores load bar.
+    bar_graph(
+        display,
+        solid_bar,
+        Point::new(X_PAD, line_y(1)),
+        Size::new(BAR_WIDTH, 10),
+        perf.all_cores_load,
+    )?;
+
+    Text::new("RAM", Point::new(X_PAD, line_y(2)))
+        .into_styled(text)
+        .draw(display)?;
+
+    // Free memory percent display.
+    let mut avg = percent_string(1.0 - perf.memory_load, false);
+    avg.push_str("% Free").unwrap();
+    let avg_width = (avg.len() as i32) * CHAR_WIDTH;
+    Text::new(
+        avg.as_str(),
+        Point::new(DISP_WIDTH - X_PAD - avg_width, line_y(2)),
+    )
+    .into_styled(text)
+    .draw(display)?;
+
+    // Draw used memory bar.
+    bar_graph(
+        display,
+        solid_bar,
+        Point::new(X_PAD, line_y(3)),
+        Size::new(BAR_WIDTH, 10),
+        perf.memory_load,
     )?;
 
     Ok(())
 }
 
-fn double_bar_graph<T>(
+fn line_y(line: i32) -> i32 {
+    Y_PAD + (line * (Y_PAD + CHAR_HEIGHT))
+}
+
+fn bar_graph<T>(
     display: &mut T,
+    style: PrimitiveStyle<BinaryColor>,
     offset: Point,
     size: Size,
-    low_val: f32,
-    high_val: f32,
+    val: f32,
 ) -> Result<(), T::Error>
 where
     T: DrawTarget<BinaryColor>,
@@ -69,36 +117,18 @@ where
         x.min(max_x)
     };
 
-    let outline = PrimitiveStyleBuilder::new()
-        .stroke_color(BinaryColor::On)
-        .stroke_width(1)
-        .fill_color(BinaryColor::Off)
-        .build();
-
-    let solid = PrimitiveStyleBuilder::new()
-        .fill_color(BinaryColor::On)
-        .build();
-
     // Wide, high value bar.
     Rectangle::new(
         Point::new(0, 0) + offset,
-        Point::new(scale_x(high_val), height) + offset,
+        Point::new(scale_x(val), height) + offset,
     )
-    .into_styled(outline)
-    .draw(display)?;
-
-    // Narrow, low value bar.
-    Rectangle::new(
-        Point::new(0, 0) + offset,
-        Point::new(scale_x(low_val), height) + offset,
-    )
-    .into_styled(solid)
+    .into_styled(style)
     .draw(display)?;
 
     Ok(())
 }
 
-fn percent_string(ratio: f32) -> String<U10> {
+fn percent_string(ratio: f32, fractional: bool) -> String<U16> {
     fn digit(d: i32) -> char {
         (('0' as u8) + d as u8) as char
     }
@@ -115,7 +145,11 @@ fn percent_string(ratio: f32) -> String<U10> {
         .push(if tens == 0 { ' ' } else { digit(tens) })
         .unwrap();
     result.push(digit(ones)).unwrap();
-    result.push('.').unwrap();
-    result.push(digit(tenths)).unwrap();
+
+    if fractional {
+        result.push('.').unwrap();
+        result.push(digit(tenths)).unwrap();
+    }
+
     result
 }
