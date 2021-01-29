@@ -104,10 +104,15 @@ fn write_perf_data(w: &mut Box<dyn SerialPort>, cpu_avg: &mut Averager) -> io::R
     let all_cores_load = busy_fraction(&load_agg);
     cpu_avg.add_sample(all_cores_load as f64);
 
+    // Memory usage.
+    let mem = sys.memory().unwrap();
+    let memory_load = 1.0 - ((mem.free.as_u64() as f32) / (mem.total.as_u64() as f32));
+
     let perf = message::PerfData {
         all_cores_load: busy_fraction(&load_agg),
         all_cores_avg: cpu_avg.average().unwrap_or_default() as f32,
         peak_core_load: busy_fraction(&min_idle),
+        memory_load,
     };
 
     // Serialize into FromHost message.
