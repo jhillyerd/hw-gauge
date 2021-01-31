@@ -9,9 +9,9 @@ use heapless::{consts::*, String};
 use shared::message;
 
 const DISP_WIDTH: i32 = 128;
-const X_PAD: i32 = 0;
+const X_PAD: i32 = 1;
 const Y_PAD: i32 = 2;
-const CHAR_HEIGHT: i32 = 12;
+const CHAR_HEIGHT: i32 = 14;
 const CHAR_WIDTH: i32 = 6;
 const BAR_WIDTH: u32 = (DISP_WIDTH - X_PAD * 2) as u32;
 
@@ -19,21 +19,31 @@ pub fn draw<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error
 where
     T: DrawTarget<BinaryColor>,
 {
+    // Invert the display during the day to even out burn-in.
+    let background = if perf.daytime {
+        BinaryColor::On
+    } else {
+        BinaryColor::Off
+    };
+    let foreground = if perf.daytime {
+        BinaryColor::Off
+    } else {
+        BinaryColor::On
+    };
+
     let text = TextStyleBuilder::new(Font6x12)
-        .text_color(BinaryColor::On)
+        .text_color(foreground)
         .build();
 
     let outline_bar = PrimitiveStyleBuilder::new()
-        .stroke_color(BinaryColor::On)
+        .stroke_color(foreground)
         .stroke_width(1)
-        .fill_color(BinaryColor::Off)
+        .fill_color(background)
         .build();
 
-    let solid_bar = PrimitiveStyleBuilder::new()
-        .fill_color(BinaryColor::On)
-        .build();
+    let solid_bar = PrimitiveStyleBuilder::new().fill_color(foreground).build();
 
-    display.clear(BinaryColor::Off)?;
+    display.clear(background)?;
 
     Text::new("CPU", Point::new(X_PAD, line_y(0)))
         .into_styled(text)
