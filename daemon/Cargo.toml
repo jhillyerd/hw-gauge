@@ -11,3 +11,4 @@ postcard = { version = "0.5.1", features = ["alloc"] }
 shared = { path = "../shared" }
 systemstat = "0.1.6"
 serialport = "4.0.0"
+time = "0.2.25"

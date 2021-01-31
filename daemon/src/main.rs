@@ -42,7 +42,7 @@ fn detectsend_loop() -> Result<(), Error> {
 
     let mut cpu_avg = Averager::new(AVG_CPU_SAMPLES);
     loop {
-        match write_perf_data(&mut port, &mut cpu_avg) {
+        match write_perf_data(&mut port, &mut cpu_avg, daytime()) {
             Ok(_) => {}
             Err(err) => {
                 return Err(Error::IO(err));
@@ -52,6 +52,16 @@ fn detectsend_loop() -> Result<(), Error> {
         // TODO factor in start time for correct period.
         std::thread::sleep(SEND_PERIOD);
     }
+}
+
+/// Returns true if local time is between 6am and 6pm.
+fn daytime() -> bool {
+    let now = time::OffsetDateTime::try_now_local();
+    if let Ok(now) = now {
+        return 6 < now.hour() && now.hour() < 18;
+    }
+
+    false
 }
 
 /// Looks for our monitor hardware on available serial ports.
@@ -79,7 +89,11 @@ fn open_port(port_info: &SerialPortInfo) -> Result<Box<dyn SerialPort>, Error> {
 }
 
 /// CPU load.
-fn write_perf_data(w: &mut Box<dyn SerialPort>, cpu_avg: &mut Averager) -> io::Result<usize> {
+fn write_perf_data(
+    w: &mut Box<dyn SerialPort>,
+    cpu_avg: &mut Averager,
+    daytime: bool,
+) -> io::Result<usize> {
     fn busy_fraction(load: &CPULoad) -> f32 {
         1.0f32 - load.idle
     }
@@ -113,6 +127,7 @@ fn write_perf_data(w: &mut Box<dyn SerialPort>, cpu_avg: &mut Averager) -> io::R
         all_cores_avg: cpu_avg.average().unwrap_or_default() as f32,
         peak_core_load: busy_fraction(&min_idle),
         memory_load,
+        daytime,
     };
 
     // Serialize into FromHost message.
