@@ -1,9 +1,9 @@
+use std::collections::VecDeque;
 use std::fmt::Display;
 
 #[derive(Debug)]
 pub struct Averager {
-    value: Option<f64>,
-    sample_count: usize,
+    samples: VecDeque<f64>,
     max_samples: usize,
 }
 
@@ -12,8 +12,8 @@ impl Display for Averager {
         write!(
             f,
             "[avg {:.04} over {} samples]",
-            self.value.unwrap_or(0.0),
-            self.sample_count
+            self.average().unwrap_or(0.0),
+            self.samples.len(),
         )
     }
 }
@@ -23,27 +23,26 @@ impl Averager {
     pub fn new(max_samples: usize) -> Self {
         assert!(max_samples > 1, "max_samples must be at least 2");
         Averager {
-            value: None,
-            sample_count: 0,
+            samples: VecDeque::with_capacity(max_samples),
             max_samples,
         }
     }
 
     pub fn average(&self) -> Option<f64> {
-        self.value
+        let len = self.samples.len();
+        if len == 0 {
+            return None;
+        }
+
+        Some(self.samples.iter().sum::<f64>() / (self.samples.len() as f64))
     }
 
     pub fn add_sample(&mut self, sample: f64) {
-        if let Some(value) = self.value {
-            if self.sample_count < self.max_samples {
-                self.sample_count += 1;
-            }
-            let scaled = value * ((self.sample_count - 1) as f64);
-            self.value = Some((scaled + sample) / (self.sample_count as f64));
-        } else {
-            self.value = Some(sample);
-            self.sample_count = 1;
+        if self.samples.len() == self.max_samples {
+            self.samples.pop_front();
         }
+
+        self.samples.push_back(sample);
     }
 }
 
@@ -107,8 +106,8 @@ mod test {
         avg.add_sample(100.0);
 
         let actual = avg.average();
-        let expected = ((10.0 * 3.0) + 100.0) / 4.0;
 
+        let expected = (15.0 + 5.0 + 15.0 + 100.0) / 4.0;
         assert_eq!(actual, Some(expected));
     }
 }
