@@ -17,4 +17,6 @@ pub struct PerfData {
     pub peak_core_load: f32,
     // Memory load, 0-1.0.
     pub memory_load: f32,
+    // Daytime or nightime display mode.
+    pub daytime: bool,
 }
