@@ -50,7 +50,7 @@ fn detectsend_loop() -> Result<(), Error> {
         }
 
         // TODO factor in start time for correct period.
-        std::thread::sleep(SEND_PERIOD);
+        std::thread::sleep(SEND_PERIOD - CPU_POLL_PERIOD);
     }
 }
 
