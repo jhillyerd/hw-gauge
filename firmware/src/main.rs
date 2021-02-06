@@ -20,7 +20,6 @@ mod app {
     use defmt::{assert, debug, error, info};
     use embedded_hal::digital::v2::*;
     use postcard;
-    use rtic::cyccnt::U32Ext;
     use rtic_core::prelude::*;
     use shared::{message, message::PerfData};
     use ssd1306::prelude::*;
@@ -31,7 +30,6 @@ mod app {
     const SYSCLK_HZ: u32 = 72_000_000;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
-    const PULSE_LED_PERIOD: u32 = SYSCLK_HZ / 10;
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
@@ -55,6 +53,9 @@ mod app {
 
     #[resources]
     struct Resources {
+        #[lock_free]
+        timer: timer::CountDownTimer<pac::TIM2>,
+
         led: ActivityLED,
         serial: io::Serial,
         display: Display,
@@ -66,6 +67,10 @@ mod app {
         // Previously received perf data message.
         #[init(None)]
         prev_perf: Option<PerfData>,
+
+        // `timer` ticks since we last received a perf packet.
+        #[init(0)]
+        prev_perf_ticks: usize,
     }
 
     #[init]
@@ -91,9 +96,9 @@ mod app {
         assert!(clocks.usbclk_valid());
 
         // Countdown timer setup.
-        let mut scope_timer =
-            timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(2.khz());
-        scope_timer.listen(timer::Event::Update);
+        let mut timer =
+            timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(10.hz());
+        timer.listen(timer::Event::Update);
 
         // Peripheral setup.
         let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
@@ -147,10 +152,6 @@ mod app {
         let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
         led.set_high().unwrap(); // LED off
 
-        // Start scheduled tasks.
-        // TODO: Switch to spawn after https://github.com/rtic-rs/cortex-m-rtic/issues/403
-        pulse_led::schedule(ctx.start).unwrap();
-
         // Prevent wait-for-interrupt (default rtic idle) from stalling debug features.
         //
         // See: https://github.com/probe-rs/probe-rs/issues/350
@@ -164,10 +165,36 @@ mod app {
         info!("RTIC init completed");
 
         init::LateResources {
+            timer,
             led,
             serial: io::Serial::new(usb_dev, port),
             display,
         }
+    }
+
+    #[task(priority = 1, binds = TIM2, resources = [timer, prev_perf_ticks])]
+    fn tick(ctx: tick::Context) {
+        let tick::Resources {
+            timer,
+            mut prev_perf_ticks,
+        } = ctx.resources;
+
+        timer.clear_update_interrupt_flag();
+
+        prev_perf_ticks.lock(|prev_perf_ticks| {
+            *prev_perf_ticks += 1;
+            match *prev_perf_ticks {
+                5 => {
+                    show_perf::spawn(None).ok();
+                }
+                20 => {
+                    info!("No perf received in 20 ticks");
+                }
+                _ => {}
+            }
+        });
+
+        pulse_led::spawn().ok();
     }
 
     #[task(resources = [led, pulse_led])]
@@ -182,11 +209,9 @@ mod app {
                 led.set_high().ok();
             }
         });
-
-        pulse_led::schedule(ctx.scheduled + PULSE_LED_PERIOD.cycles()).unwrap();
     }
 
-    #[task(binds = USB_HP_CAN_TX, resources = [serial, pulse_led])]
+    #[task(priority = 2, binds = USB_HP_CAN_TX, resources = [serial, pulse_led])]
     fn usb_high(ctx: usb_high::Context) {
         let usb_high::Resources { serial, pulse_led } = ctx.resources;
         (serial, pulse_led).lock(|serial, pulse_led| {
@@ -195,7 +220,7 @@ mod app {
         });
     }
 
-    #[task(binds = USB_LP_CAN_RX0, resources = [serial, pulse_led])]
+    #[task(priority = 2, binds = USB_LP_CAN_RX0, resources = [serial, pulse_led])]
     fn usb_low(ctx: usb_low::Context) {
         let usb_low::Resources { serial, pulse_led } = ctx.resources;
         (serial, pulse_led).lock(|serial, pulse_led| {
@@ -204,14 +229,19 @@ mod app {
         });
     }
 
-    #[task]
-    fn handle_packet(_ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
+    #[task(resources = [prev_perf_ticks])]
+    fn handle_packet(ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
+        let handle_packet::Resources {
+            mut prev_perf_ticks,
+        } = ctx.resources;
+
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
                 debug!("Rx message: {:?}", msg);
                 match msg {
                     message::FromHost::ShowPerf(perf_data) => {
+                        prev_perf_ticks.lock(|ticks| *ticks = 0);
                         show_perf::spawn(Some(perf_data)).ok();
                     }
                     _ => {}
@@ -229,15 +259,6 @@ mod app {
     #[task(resources = [prev_perf, display])]
     fn show_perf(ctx: show_perf::Context, new_perf: Option<PerfData>) {
         let show_perf::Resources { prev_perf, display } = ctx.resources;
-
-        if let Some(_) = new_perf {
-            // Schedule a follow-up show_perf that will show unaltered prev_perf values.
-            show_perf::spawn(None).ok();
-        } else {
-            // This is the follow-up schedule above, wait for a bit.
-            // TODO: Replace this with a normal schedule when RTIC monotonic is fixed.
-            asm::delay(SYSCLK_HZ / 2);
-        }
 
         (prev_perf, display).lock(|prev_perf: &mut Option<PerfData>, display: &mut Display| {
             let prev_value = prev_perf.take();
@@ -261,7 +282,7 @@ mod app {
                     })
                 }
                 _ => {
-                    error!("No new or previous PerfData");
+                    // This is expected during startup.
                     None
                 }
             };
