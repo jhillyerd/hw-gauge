@@ -15,7 +15,24 @@ const CHAR_HEIGHT: i32 = 14;
 const CHAR_WIDTH: i32 = 6;
 const BAR_WIDTH: u32 = (DISP_WIDTH - X_PAD * 2) as u32;
 
-pub fn draw<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
+pub fn draw_message<T>(display: &mut T, msg: &str) -> Result<(), T::Error>
+where
+    T: DrawTarget<BinaryColor>,
+{
+    let text = TextStyleBuilder::new(Font6x12)
+        .text_color(BinaryColor::On)
+        .build();
+
+    display.clear(BinaryColor::Off)?;
+
+    Text::new(msg, Point::new(X_PAD, line_y(1)))
+        .into_styled(text)
+        .draw(display)?;
+
+    return Ok(());
+}
+
+pub fn draw_perf<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
 where
     T: DrawTarget<BinaryColor>,
 {

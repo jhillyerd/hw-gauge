@@ -17,7 +17,7 @@ mod io;
 mod app {
     use crate::{gfx, io};
     use cortex_m::asm;
-    use defmt::{assert, debug, error, info};
+    use defmt::{assert, debug, error, info, warn};
     use embedded_hal::digital::v2::*;
     use postcard;
     use rtic_core::prelude::*;
@@ -28,6 +28,9 @@ mod app {
 
     // Frequency of the system clock, which will also be the frequency of CYCCNT.
     const SYSCLK_HZ: u32 = 72_000_000;
+
+    // Frequency of timer used for updating display, checking received perf timeout.
+    const TIMER_HZ: u32 = 10;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
@@ -68,9 +71,9 @@ mod app {
         #[init(None)]
         prev_perf: Option<PerfData>,
 
-        // `timer` ticks since we last received a perf packet.
+        // Milliseconds since device last received a perf packet over USB.
         #[init(0)]
-        prev_perf_ticks: usize,
+        prev_perf_ms: u32,
     }
 
     #[init]
@@ -97,7 +100,7 @@ mod app {
 
         // Countdown timer setup.
         let mut timer =
-            timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(10.hz());
+            timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(TIMER_HZ.hz());
         timer.listen(timer::Event::Update);
 
         // Peripheral setup.
@@ -172,23 +175,37 @@ mod app {
         }
     }
 
-    #[task(priority = 1, binds = TIM2, resources = [timer, prev_perf_ticks])]
+    #[task(priority = 1, binds = TIM2, resources = [timer, prev_perf_ms, display])]
     fn tick(ctx: tick::Context) {
         let tick::Resources {
             timer,
-            mut prev_perf_ticks,
+            mut prev_perf_ms,
+            mut display,
         } = ctx.resources;
 
         timer.clear_update_interrupt_flag();
 
-        prev_perf_ticks.lock(|prev_perf_ticks| {
-            *prev_perf_ticks += 1;
-            match *prev_perf_ticks {
-                5 => {
+        prev_perf_ms.lock(|prev_perf_ms| {
+            *prev_perf_ms += 1000 / TIMER_HZ;
+
+            // Intervals below must divide evenly into the timer period.
+            match *prev_perf_ms {
+                500 => {
                     show_perf::spawn(None).ok();
                 }
-                20 => {
-                    info!("No perf received in 20 ticks");
+                2_000 => {
+                    info!("No perf received in 2 seconds");
+                    display.lock(|display| {
+                        gfx::draw_message(display, "No data received").ok();
+                        display.flush().ok();
+                    });
+                }
+                30_000 => {
+                    warn!("No perf received in 30 seconds");
+                    display.lock(|display| {
+                        display.clear();
+                        display.flush().ok();
+                    });
                 }
                 _ => {}
             }
@@ -229,11 +246,9 @@ mod app {
         });
     }
 
-    #[task(resources = [prev_perf_ticks])]
+    #[task(resources = [prev_perf_ms])]
     fn handle_packet(ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
-        let handle_packet::Resources {
-            mut prev_perf_ticks,
-        } = ctx.resources;
+        let handle_packet::Resources { mut prev_perf_ms } = ctx.resources;
 
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
@@ -241,7 +256,7 @@ mod app {
                 debug!("Rx message: {:?}", msg);
                 match msg {
                     message::FromHost::ShowPerf(perf_data) => {
-                        prev_perf_ticks.lock(|ticks| *ticks = 0);
+                        prev_perf_ms.lock(|ticks| *ticks = 0);
                         show_perf::spawn(Some(perf_data)).ok();
                     }
                     _ => {}
@@ -290,7 +305,7 @@ mod app {
             debug!("Will display: {:?}", perf_data);
 
             if let Some(perf_data) = perf_data {
-                gfx::draw(display, &perf_data).unwrap();
+                gfx::draw_perf(display, &perf_data).unwrap();
                 if let Err(_) = display.flush() {
                     error!("Failed to flush display");
                     #[cfg(debug_assertions)]
