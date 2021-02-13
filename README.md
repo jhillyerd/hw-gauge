@@ -2,7 +2,7 @@
 
 Rust powered CPU and memory monitor.
 
-![hw-cpu assembled photo](https://github.com/jhillyerd/hw-cpu/blob/photos/images/assembled.jpg?raw=true)
+![hw-cpu assembled photo](https://github.com/jhillyerd/hw-cpu/blob/main/images/assembled.jpg?raw=true)
 
 ## daemon
 
@@ -20,6 +20,6 @@ does not work well within them.  This may change after
 
 ## Additional images
 
-![hw-cpu case design](https://github.com/jhillyerd/hw-cpu/blob/photos/images/case-design.png?raw=true)
+![hw-cpu case design](https://github.com/jhillyerd/hw-cpu/blob/main/images/case-design.png?raw=true)
 
-![hw-cpu internals](https://github.com/jhillyerd/hw-cpu/blob/photos/images/case-internals.jpg?raw=true)
+![hw-cpu internals](https://github.com/jhillyerd/hw-cpu/blob/main/images/case-internals.jpg?raw=true)
