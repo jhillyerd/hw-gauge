@@ -10,17 +10,15 @@ mod io;
 
 #[rtic::app(
     device = stm32f1xx_hal::pac,
-    peripherals = true,
-    monotonic = rtic::cyccnt::CYCCNT,
     dispatchers = [SPI1, SPI2]
 )]
 mod app {
     use crate::{gfx, io};
     use cortex_m::asm;
     use defmt::{assert, debug, error, info, warn};
+    use dwt_systick_monotonic::DwtSystick;
     use embedded_hal::digital::v2::*;
     use postcard;
-    use rtic_core::prelude::*;
     use shared::{message, message::PerfData};
     use ssd1306::prelude::*;
     use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, rcc::Clocks, timer, usb};
@@ -36,6 +34,9 @@ mod app {
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
+
+    #[monotonic(binds = SysTick, default = true)]
+    type SysMono = DwtSystick<{ crate::app::SYSCLK_HZ }>;
 
     // LED blinks on USB activity.
     type ActivityLED = gpioc::PC13<Output<PushPull>>;
@@ -59,9 +60,9 @@ mod app {
         #[lock_free]
         timer: timer::CountDownTimer<pac::TIM2>,
 
-        led: ActivityLED,
+        led: crate::app::ActivityLED,
         serial: io::Serial,
-        display: Display,
+        display: crate::app::Display,
 
         // Blinks ActivityLED briefly when set true.
         #[init(false)]
@@ -77,15 +78,12 @@ mod app {
     }
 
     #[init]
-    fn init(ctx: init::Context) -> init::LateResources {
+    fn init(ctx: init::Context) -> (init::LateResources, init::Monotonics) {
         static mut USB_BUS: Option<UsbBusAllocator<usb::UsbBusType>> = None;
 
-        info!("RTIC 0.6 init started");
-        let mut cp = ctx.core;
+        info!("RTIC 0.6.0-a2 init started");
+        let mut cp: cortex_m::Peripherals = ctx.core;
         let dp: pac::Peripherals = ctx.device;
-
-        // Enable CYCCNT; used for scheduling.
-        cp.DWT.enable_cycle_counter();
 
         // Setup and apply clock confiugration.
         let mut flash = dp.FLASH.constrain();
@@ -96,6 +94,7 @@ mod app {
             .sysclk(SYSCLK_HZ.hz())
             .pclk1((SYSCLK_HZ / 2).hz())
             .freeze(&mut flash.acr);
+        let mono = DwtSystick::new(&mut cp.DCB, cp.DWT, cp.SYST, clocks.sysclk().0);
         assert!(clocks.usbclk_valid());
 
         // Countdown timer setup.
@@ -167,12 +166,15 @@ mod app {
 
         info!("RTIC init completed");
 
-        init::LateResources {
-            timer,
-            led,
-            serial: io::Serial::new(usb_dev, port),
-            display,
-        }
+        (
+            init::LateResources {
+                timer,
+                led,
+                serial: io::Serial::new(usb_dev, port),
+                display,
+            },
+            init::Monotonics(mono),
+        )
     }
 
     #[task(priority = 1, binds = TIM2, resources = [timer, prev_perf_ms, display])]
