@@ -325,11 +325,10 @@ fn handle_usb_event(serial: &mut io::Serial) {
     }
 }
 
-#[defmt::timestamp]
-fn timestamp() -> u64 {
-    static COUNT: AtomicUsize = AtomicUsize::new(0);
+static COUNT: AtomicUsize = AtomicUsize::new(0);
+defmt::timestamp!("{=usize}", {
     // NOTE(no-CAS) `timestamps` runs with interrupts disabled
     let n = COUNT.load(Ordering::Relaxed);
     COUNT.store(n + 1, Ordering::Relaxed);
-    n as u64
-}
+    n
+});
