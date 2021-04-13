@@ -12,14 +12,14 @@ defmt-rtt = "0.2.0"
 dwt-systick-monotonic = "0.1.0-alpha.1"
 embedded-hal = "0.2.3"
 embedded-graphics = "0.6.2"
-heapless = "0.5.6"
+heapless = "0.6.1"
 mutex-trait = "0.2"
 panic-probe = { version = "0.2.0", features = ["print-defmt"] }
-postcard = "0.5.1"
+postcard = "0.6.1"
 rtic-core = "0.3"
 shared = { path = "../shared" }
 ssd1306 = "0.5.1"
-stm32-usbd = "0.5.1"
+stm32-usbd = "0.6.0"
 stm32f1xx-hal = { version = "0.7", features = ["rt", "stm32f103", "medium", "stm32-usbd" ] }
 usb-device = "0.2.7"
 usbd-serial = "0.1.1"
@@ -41,8 +41,13 @@ defmt-error = []
 
 # Debug info does not occupy flash
 [profile.release]
-debug = true
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
 opt-level = "z"
+overflow-checks = false
 
 # Default dev profile doesn't fit in 64KB flash
 [profile.dev]

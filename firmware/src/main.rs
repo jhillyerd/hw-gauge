@@ -281,14 +281,17 @@ mod app {
             let prev_value = prev_perf.take();
             let perf_data: Option<PerfData> = match (prev_value, new_perf) {
                 (Some(prev), None) => {
+                    // Display previous perf packet unaltered.
                     *prev_perf = Some(prev);
                     Some(prev)
                 }
                 (None, Some(new)) => {
+                    // Display new perf packet unaltered, as there is no history.
                     *prev_perf = Some(new);
                     Some(new)
                 }
                 (Some(prev), Some(new)) => {
+                    // Display average of new and previous perf packets.
                     *prev_perf = Some(new);
                     Some(PerfData {
                         all_cores_load: (prev.all_cores_load + new.all_cores_load) / 2.0,
