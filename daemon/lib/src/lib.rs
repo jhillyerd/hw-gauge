@@ -17,7 +17,7 @@ const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 
 const SEND_PERIOD: Duration = Duration::from_secs(1);
 const CPU_POLL_PERIOD: Duration = Duration::from_secs(1);
-const AVG_CPU_SAMPLES: usize = 30; // Seconds of data for CPU average.
+const AVG_CPU_SAMPLES: usize = 15; // Seconds of data for CPU average.
 
 #[derive(Debug)]
 pub enum Error {
