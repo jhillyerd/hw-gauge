@@ -1,5 +1,5 @@
 [package]
-name = "hw-cpu-service"
+name = "windows"
 version = "0.1.0"
 authors = ["James Hillyerd <james@hillyerd.com>"]
 edition = "2018"
@@ -8,9 +8,5 @@ edition = "2018"
 
 [dependencies]
 once_cell = "1.7.2"
-postcard = { version = "0.5.1", features = ["alloc"] }
-shared = { path = "../shared" }
-systemstat = "0.1.6"
-serialport = "4.0.0"
-time = "0.2.25"
+lib = { path = "../lib" }
 windows-service = "0.3.1"
