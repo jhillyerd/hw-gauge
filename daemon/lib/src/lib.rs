@@ -9,33 +9,24 @@ use systemstat::{data::CPULoad, Platform, System};
 
 mod avg;
 
+/// Delay between attempts to detect device USB Serial port.
+pub const DETECT_RETRY_DELAY: Duration = Duration::from_secs(10);
+
 const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
 const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 
 const SEND_PERIOD: Duration = Duration::from_secs(1);
 const CPU_POLL_PERIOD: Duration = Duration::from_secs(1);
-const RETRY_DELAY: Duration = Duration::from_secs(10);
 const AVG_CPU_SAMPLES: usize = 30; // Seconds of data for CPU average.
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     PortNotFound,
     IO(io::Error),
     Serial(serialport::Error),
 }
 
-fn main() {
-    loop {
-        println!(
-            "Error: {:?}\nRetrying in {:?}...",
-            detectsend_loop(),
-            RETRY_DELAY
-        );
-        std::thread::sleep(RETRY_DELAY);
-    }
-}
-
-fn detectsend_loop() -> Result<(), Error> {
+pub fn detectsend_loop() -> Result<(), Error> {
     let pinfo = detect_port()?;
     let mut port = open_port(&pinfo)?;
     println!("Sending to detected device on port: {}", pinfo.port_name);
