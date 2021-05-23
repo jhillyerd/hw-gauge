@@ -8,3 +8,7 @@ edition = "2018"
 
 [dependencies]
 lib = { path = "../lib" }
+
+[[bin]]
+name = "hw-cpu-daemon"
+path = "src/main.rs"
