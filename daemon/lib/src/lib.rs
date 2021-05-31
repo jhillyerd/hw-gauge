@@ -1,8 +1,11 @@
 use avg::Averager;
+use log;
+use once_cell::sync::Lazy;
 use postcard;
 use serialport::{SerialPort, SerialPortInfo, SerialPortType};
 use shared::message;
 use std::io;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use systemstat::{data::CPULoad, Platform, System};
@@ -19,6 +22,22 @@ const SEND_PERIOD: Duration = Duration::from_secs(1);
 const CPU_POLL_PERIOD: Duration = Duration::from_secs(1);
 const AVG_CPU_SAMPLES: usize = 15; // Seconds of data for CPU average.
 
+#[derive(PartialEq)]
+enum RunMode {
+    Run,
+    Stop,
+}
+
+struct ServiceContext {
+    run_mode: RunMode,
+}
+
+static CONTEXT: Lazy<Mutex<ServiceContext>> = Lazy::new(|| {
+    Mutex::new(ServiceContext {
+        run_mode: RunMode::Run,
+    })
+});
+
 #[derive(Debug)]
 pub enum Error {
     PortNotFound,
@@ -26,10 +45,20 @@ pub enum Error {
     Serial(serialport::Error),
 }
 
+pub fn stop() {
+    match CONTEXT.lock() {
+        Ok(mut context) => context.run_mode = RunMode::Stop,
+        Err(_) => {
+            log::error!("Failed to lock context in stop (fatal)");
+            panic!("Failed to lock context in stop (fatal)");
+        }
+    };
+}
+
 pub fn detectsend_loop() -> Result<(), Error> {
     let pinfo = detect_port()?;
     let mut port = open_port(&pinfo)?;
-    println!("Sending to detected device on port: {}", pinfo.port_name);
+    log::info!("Sending to detected device on port: {}", pinfo.port_name);
 
     let mut cpu_avg = Averager::new(AVG_CPU_SAMPLES);
     loop {
@@ -39,6 +68,18 @@ pub fn detectsend_loop() -> Result<(), Error> {
                 return Err(Error::IO(err));
             }
         }
+
+        match CONTEXT.lock() {
+            Ok(context) => {
+                if context.run_mode == RunMode::Stop {
+                    return Ok(());
+                }
+            }
+            Err(_) => {
+                log::error!("Failed to lock context in detect/send loop (fatal)");
+                return Ok(());
+            }
+        };
 
         // TODO factor in start time for correct period.
         std::thread::sleep(SEND_PERIOD - CPU_POLL_PERIOD);
