@@ -62,12 +62,7 @@ pub fn detectsend_loop() -> Result<(), Error> {
 
     let mut cpu_avg = Averager::new(AVG_CPU_SAMPLES);
     loop {
-        match write_perf_data(&mut port, &mut cpu_avg, daytime()) {
-            Ok(_) => {}
-            Err(err) => {
-                return Err(Error::IO(err));
-            }
-        }
+        write_perf_data(&mut port, &mut cpu_avg, daytime())?;
 
         match CONTEXT.lock() {
             Ok(context) => {
@@ -125,22 +120,22 @@ fn write_perf_data(
     w: &mut Box<dyn SerialPort>,
     cpu_avg: &mut Averager,
     daytime: bool,
-) -> io::Result<usize> {
+) -> Result<(), Error> {
     fn busy_fraction(load: &CPULoad) -> f32 {
         1.0f32 - load.idle
     }
 
     // Capture CPU metrics.
     let sys = System::new();
-    let cpu_load = sys.cpu_load().unwrap();
-    let load_agg = sys.cpu_load_aggregate().unwrap();
+    let cpu_load = sys.cpu_load().map_err(Error::IO)?;
+    let load_agg = sys.cpu_load_aggregate().map_err(Error::IO)?;
     thread::sleep(CPU_POLL_PERIOD);
 
     // Load across all cores.
-    let load_agg = load_agg.done().unwrap();
+    let load_agg = load_agg.done().map_err(Error::IO)?;
 
     // Select least idle core.
-    let cpu_load = cpu_load.done().unwrap();
+    let cpu_load = cpu_load.done().map_err(Error::IO)?;
     let min_idle = cpu_load
         .iter()
         .min_by(|a, b| a.idle.partial_cmp(&b.idle).unwrap())
@@ -151,7 +146,7 @@ fn write_perf_data(
     cpu_avg.add_sample(all_cores_load as f64);
 
     // Memory usage.
-    let mem = sys.memory().unwrap();
+    let mem = sys.memory().map_err(Error::IO)?;
     let memory_load = 1.0 - ((mem.free.as_u64() as f32) / (mem.total.as_u64() as f32));
 
     let perf = message::PerfData {
@@ -166,5 +161,8 @@ fn write_perf_data(
     let msg = message::FromHost::ShowPerf(perf);
     let msg_bytes = postcard::to_allocvec_cobs(&msg).expect("COB serialization failed");
 
-    w.write(&msg_bytes)
+    match w.write(&msg_bytes) {
+        Ok(_) => Ok(()),
+        Err(err) => Err(Error::IO(err)),
+    }
 }
