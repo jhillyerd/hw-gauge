@@ -55,33 +55,30 @@ mod app {
         DisplaySize128x64,
     >;
 
-    #[resources]
-    struct Resources {
-        #[lock_free]
-        timer: timer::CountDownTimer<pac::TIM2>,
-
+    #[shared]
+    struct Shared {
         led: crate::app::ActivityLED,
         serial: io::Serial,
         display: crate::app::Display,
 
         // Blinks ActivityLED briefly when set true.
-        #[init(false)]
         pulse_led: bool,
 
         // Previously received perf data message.
-        #[init(None)]
         prev_perf: Option<PerfData>,
 
         // Milliseconds since device last received a perf packet over USB.
-        #[init(0)]
         prev_perf_ms: u32,
     }
 
-    #[init]
-    fn init(ctx: init::Context) -> (init::LateResources, init::Monotonics) {
-        static mut USB_BUS: Option<UsbBusAllocator<usb::UsbBusType>> = None;
+    #[local]
+    struct Local {
+        timer: timer::CountDownTimer<pac::TIM2>,
+    }
 
-        info!("RTIC 0.6.0-a2 init started");
+    #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
+    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+        info!("RTIC 0.6.0-rc.4 init started");
         let mut cp: cortex_m::Peripherals = ctx.core;
         let dp: pac::Peripherals = ctx.device;
 
@@ -116,10 +113,10 @@ mod app {
             pin_dm: gpioa.pa11,
             pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
         };
-        *USB_BUS = Some(usb::UsbBus::new(usb_p));
-        let port = usbd_serial::SerialPort::new(USB_BUS.as_ref().unwrap());
+        *ctx.local.usb_bus = Some(usb::UsbBus::new(usb_p));
+        let port = usbd_serial::SerialPort::new(ctx.local.usb_bus.as_ref().unwrap());
         let usb_dev = UsbDeviceBuilder::new(
-            USB_BUS.as_ref().unwrap(),
+            ctx.local.usb_bus.as_ref().unwrap(),
             UsbVidPid(USB_VENDOR_ID, USB_PRODUCT_ID),
         )
         .manufacturer("JHillyerd")
@@ -167,25 +164,27 @@ mod app {
         info!("RTIC init completed");
 
         (
-            init::LateResources {
-                timer,
+            Shared {
                 led,
                 serial: io::Serial::new(usb_dev, port),
                 display,
+                pulse_led: false,
+                prev_perf: None,
+                prev_perf_ms: 0,
             },
+            Local { timer },
             init::Monotonics(mono),
         )
     }
 
-    #[task(priority = 1, binds = TIM2, resources = [timer, prev_perf_ms, display])]
+    #[task(priority = 1, binds = TIM2, shared = [prev_perf_ms, display], local = [timer])]
     fn tick(ctx: tick::Context) {
-        let tick::Resources {
-            timer,
+        let tick::SharedResources {
             mut prev_perf_ms,
             mut display,
-        } = ctx.resources;
+        } = ctx.shared;
 
-        timer.clear_update_interrupt_flag();
+        ctx.local.timer.clear_update_interrupt_flag();
 
         prev_perf_ms.lock(|prev_perf_ms| {
             *prev_perf_ms += 1000 / TIMER_HZ;
@@ -216,9 +215,9 @@ mod app {
         pulse_led::spawn().ok();
     }
 
-    #[task(resources = [led, pulse_led])]
+    #[task(shared = [led, pulse_led])]
     fn pulse_led(ctx: pulse_led::Context) {
-        let pulse_led::Resources { led, pulse_led } = ctx.resources;
+        let pulse_led::SharedResources { led, pulse_led } = ctx.shared;
 
         (led, pulse_led).lock(|led: &mut ActivityLED, pulse_led| {
             if *pulse_led {
@@ -230,27 +229,27 @@ mod app {
         });
     }
 
-    #[task(priority = 2, binds = USB_HP_CAN_TX, resources = [serial, pulse_led])]
+    #[task(priority = 2, binds = USB_HP_CAN_TX, shared = [serial, pulse_led])]
     fn usb_high(ctx: usb_high::Context) {
-        let usb_high::Resources { serial, pulse_led } = ctx.resources;
+        let usb_high::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
             crate::handle_usb_event(serial);
             *pulse_led = true;
         });
     }
 
-    #[task(priority = 2, binds = USB_LP_CAN_RX0, resources = [serial, pulse_led])]
+    #[task(priority = 2, binds = USB_LP_CAN_RX0, shared = [serial, pulse_led])]
     fn usb_low(ctx: usb_low::Context) {
-        let usb_low::Resources { serial, pulse_led } = ctx.resources;
+        let usb_low::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
             crate::handle_usb_event(serial);
             *pulse_led = true;
         });
     }
 
-    #[task(resources = [prev_perf_ms])]
+    #[task(shared = [prev_perf_ms])]
     fn handle_packet(ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
-        let handle_packet::Resources { mut prev_perf_ms } = ctx.resources;
+        let handle_packet::SharedResources { mut prev_perf_ms } = ctx.shared;
 
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
@@ -273,9 +272,9 @@ mod app {
 
     /// Displays PerfData smoothly, by averaging new_perf with prev_perf.  It then updates
     /// prev_perf, and schedules itself to display that value directly.
-    #[task(resources = [prev_perf, display])]
+    #[task(shared = [prev_perf, display])]
     fn show_perf(ctx: show_perf::Context, new_perf: Option<PerfData>) {
-        let show_perf::Resources { prev_perf, display } = ctx.resources;
+        let show_perf::SharedResources { prev_perf, display } = ctx.shared;
 
         (prev_perf, display).lock(|prev_perf: &mut Option<PerfData>, display: &mut Display| {
             let prev_value = prev_perf.take();

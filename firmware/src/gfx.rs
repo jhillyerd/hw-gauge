@@ -5,7 +5,7 @@ use embedded_graphics::{
     primitives::Rectangle,
     style::{PrimitiveStyle, PrimitiveStyleBuilder, TextStyleBuilder},
 };
-use heapless::{consts::*, String};
+use heapless::String;
 use shared::message;
 
 const DISP_WIDTH: i32 = 128;
@@ -155,7 +155,7 @@ where
     Ok(())
 }
 
-fn percent_string(ratio: f32, fractional: bool) -> String<U16> {
+fn percent_string(ratio: f32, fractional: bool) -> String<16> {
     fn digit(d: i32) -> char {
         (('0' as u8) + d as u8) as char
     }

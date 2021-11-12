@@ -39,7 +39,7 @@ impl Serial {
                 }
 
                 // Copy a complete packet to provided buffer.
-                &packet_buf[..i + 1].copy_from_slice(&self.buf[..i + 1]);
+                let _ = &packet_buf[..i + 1].copy_from_slice(&self.buf[..i + 1]);
 
                 if i + 1 == self.buf_next {
                     // Buffer is now empty, reset index.
