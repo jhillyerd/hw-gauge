@@ -21,14 +21,14 @@ mod app {
     use postcard;
     use shared::{message, message::PerfData};
     use ssd1306::prelude::*;
-    use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, rcc::Clocks, usb};
+    use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, rcc::Clocks, timer, usb};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
     // Frequency of the system clock, which will also be the frequency of CYCCNT.
     const SYSCLK_HZ: u32 = 72_000_000;
 
-    // Duration to illuninate status LED upon data RX.
-    const STATUS_LED_MS: u32 = 50;
+    // Frequency of timer used for updating display, checking received perf timeout.
+    const TIMER_HZ: u32 = 10;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
@@ -67,12 +67,14 @@ mod app {
         // Previously received perf data message.
         prev_perf: Option<PerfData>,
 
-        // Spawn handle for no data received timeouts.
-        timeout_handle: Option<no_data_timeout::SpawnHandle>,
+        // Milliseconds since device last received a perf packet over USB.
+        prev_perf_ms: u32,
     }
 
     #[local]
-    struct Local {}
+    struct Local {
+        timer: timer::CountDownTimer<pac::TIM2>,
+    }
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -91,6 +93,11 @@ mod app {
             .freeze(&mut flash.acr);
         let mono = DwtSystick::new(&mut cp.DCB, cp.DWT, cp.SYST, clocks.sysclk().0);
         assert!(clocks.usbclk_valid());
+
+        // Countdown timer setup.
+        let mut timer =
+            timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(TIMER_HZ.hz());
+        timer.listen(timer::Event::Update);
 
         // Peripheral setup.
         let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
@@ -154,9 +161,6 @@ mod app {
         });
         let _dma1 = dp.DMA1.split(&mut rcc.ahb);
 
-        // Start tasks.
-        pulse_led::spawn().unwrap();
-
         info!("RTIC init completed");
 
         (
@@ -166,11 +170,46 @@ mod app {
                 display,
                 pulse_led: false,
                 prev_perf: None,
-                timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
+                prev_perf_ms: 0,
             },
-            Local {},
+            Local { timer },
             init::Monotonics(mono),
         )
+    }
+
+    #[task(priority = 1, binds = TIM2, shared = [prev_perf_ms, display], local = [timer])]
+    fn tick(ctx: tick::Context) {
+        let tick::SharedResources {
+            mut prev_perf_ms,
+            mut display,
+        } = ctx.shared;
+
+        ctx.local.timer.clear_update_interrupt_flag();
+
+        prev_perf_ms.lock(|prev_perf_ms| {
+            *prev_perf_ms += 1000 / TIMER_HZ;
+
+            // Intervals below must divide evenly into the timer period.
+            match *prev_perf_ms {
+                2_000 => {
+                    info!("No perf received in 2 seconds");
+                    display.lock(|display| {
+                        gfx::draw_message(display, "No data received").ok();
+                        display.flush().ok();
+                    });
+                }
+                30_000 => {
+                    warn!("No perf received in 30 seconds");
+                    display.lock(|display| {
+                        display.clear();
+                        display.flush().ok();
+                    });
+                }
+                _ => {}
+            }
+        });
+
+        pulse_led::spawn().ok();
     }
 
     #[task(shared = [led, pulse_led])]
@@ -185,9 +224,6 @@ mod app {
                 led.set_high().ok();
             }
         });
-
-        // Clear LED after a delay.
-        pulse_led::spawn_after(STATUS_LED_MS.millis()).unwrap();
     }
 
     #[task(priority = 2, binds = USB_HP_CAN_TX, shared = [serial, pulse_led])]
@@ -208,20 +244,17 @@ mod app {
         });
     }
 
-    #[task(shared = [timeout_handle])]
-    fn handle_packet(mut ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
+    #[task(shared = [prev_perf_ms])]
+    fn handle_packet(ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
+        let handle_packet::SharedResources { mut prev_perf_ms } = ctx.shared;
+
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
                 debug!("Rx message: {:?}", msg);
                 match msg {
                     message::FromHost::ShowPerf(perf_data) => {
-                        // Reschedule pending no-data timeout.
-                        ctx.shared.timeout_handle.lock(|timeout_opt| {
-                            timeout_opt.take().map(|timeout| timeout.cancel().ok());
-                            *timeout_opt = no_data_timeout::spawn_after(2.secs(), false).ok();
-                        });
-
+                        prev_perf_ms.lock(|ticks| *ticks = 0);
                         show_perf::spawn(Some(perf_data)).ok();
                     }
                     _ => {}
@@ -284,33 +317,6 @@ mod app {
                     asm::bkpt();
                 }
             }
-        });
-    }
-
-    #[task(shared = [display, timeout_handle])]
-    fn no_data_timeout(ctx: no_data_timeout::Context, clear_screen: bool) {
-        let no_data_timeout::SharedResources {
-            mut display,
-            mut timeout_handle,
-        } = ctx.shared;
-
-        display.lock(|display| {
-            if clear_screen {
-                warn!("No perf data received in a long while");
-                display.clear();
-            } else {
-                info!("No perf data received recently");
-                gfx::draw_message(display, "No data received").ok();
-
-                // Schedule clear screen timeout.
-                timeout_handle.lock(|timeout_opt| {
-                    timeout_opt.take().map(|timeout| timeout.cancel().ok());
-                    // TODO change clock source to allow for longer timeout
-                    *timeout_opt = no_data_timeout::spawn_after(20.secs(), true).ok();
-                });
-            }
-
-            display.flush().ok();
         });
     }
 }
