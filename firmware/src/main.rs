@@ -21,14 +21,14 @@ mod app {
     use postcard;
     use shared::{message, message::PerfData};
     use ssd1306::prelude::*;
-    use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, rcc::Clocks, timer, usb};
+    use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, rcc::Clocks, usb};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
     // Frequency of the system clock, which will also be the frequency of CYCCNT.
     const SYSCLK_HZ: u32 = 72_000_000;
 
-    // Frequency of timer used for updating display, checking received perf timeout.
-    const TIMER_HZ: u32 = 10;
+    // Duration to illuninate status LED upon data RX.
+    const STATUS_LED_MS: u32 = 50;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
@@ -73,7 +73,7 @@ mod app {
 
     #[local]
     struct Local {
-        timer: timer::CountDownTimer<pac::TIM2>,
+        // timer: timer::CountDownTimer<pac::TIM2>,
     }
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
@@ -95,9 +95,9 @@ mod app {
         assert!(clocks.usbclk_valid());
 
         // Countdown timer setup.
-        let mut timer =
-            timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(TIMER_HZ.hz());
-        timer.listen(timer::Event::Update);
+        // let mut timer =
+        //     timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(TIMER_HZ.hz());
+        // timer.listen(timer::Event::Update);
 
         // Peripheral setup.
         let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
@@ -161,6 +161,9 @@ mod app {
         });
         let _dma1 = dp.DMA1.split(&mut rcc.ahb);
 
+        // Start tasks.
+        pulse_led::spawn().unwrap();
+
         info!("RTIC init completed");
 
         (
@@ -172,17 +175,9 @@ mod app {
                 prev_perf: None,
                 timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
             },
-            Local { timer },
+            Local {},
             init::Monotonics(mono),
         )
-    }
-
-    // TODO switch to spawn_after and delete
-    #[task(priority = 1, binds = TIM2, local = [timer])]
-    fn tick(ctx: tick::Context) {
-        ctx.local.timer.clear_update_interrupt_flag();
-
-        pulse_led::spawn().ok();
     }
 
     #[task(shared = [led, pulse_led])]
@@ -197,6 +192,9 @@ mod app {
                 led.set_high().ok();
             }
         });
+
+        // Clear LED after a delay.
+        pulse_led::spawn_after(STATUS_LED_MS.millis()).unwrap();
     }
 
     #[task(priority = 2, binds = USB_HP_CAN_TX, shared = [serial, pulse_led])]
