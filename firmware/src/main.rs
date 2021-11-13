@@ -67,8 +67,8 @@ mod app {
         // Previously received perf data message.
         prev_perf: Option<PerfData>,
 
-        // Milliseconds since device last received a perf packet over USB.
-        prev_perf_ms: u32,
+        // Spawn handle for no data received timeouts.
+        timeout_handle: Option<no_data_timeout::SpawnHandle>,
     }
 
     #[local]
@@ -170,44 +170,17 @@ mod app {
                 display,
                 pulse_led: false,
                 prev_perf: None,
-                prev_perf_ms: 0,
+                timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
             },
             Local { timer },
             init::Monotonics(mono),
         )
     }
 
-    #[task(priority = 1, binds = TIM2, shared = [prev_perf_ms, display], local = [timer])]
+    // TODO switch to spawn_after and delete
+    #[task(priority = 1, binds = TIM2, local = [timer])]
     fn tick(ctx: tick::Context) {
-        let tick::SharedResources {
-            mut prev_perf_ms,
-            mut display,
-        } = ctx.shared;
-
         ctx.local.timer.clear_update_interrupt_flag();
-
-        prev_perf_ms.lock(|prev_perf_ms| {
-            *prev_perf_ms += 1000 / TIMER_HZ;
-
-            // Intervals below must divide evenly into the timer period.
-            match *prev_perf_ms {
-                2_000 => {
-                    info!("No perf received in 2 seconds");
-                    display.lock(|display| {
-                        gfx::draw_message(display, "No data received").ok();
-                        display.flush().ok();
-                    });
-                }
-                30_000 => {
-                    warn!("No perf received in 30 seconds");
-                    display.lock(|display| {
-                        display.clear();
-                        display.flush().ok();
-                    });
-                }
-                _ => {}
-            }
-        });
 
         pulse_led::spawn().ok();
     }
@@ -244,17 +217,20 @@ mod app {
         });
     }
 
-    #[task(shared = [prev_perf_ms])]
-    fn handle_packet(ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
-        let handle_packet::SharedResources { mut prev_perf_ms } = ctx.shared;
-
+    #[task(shared = [timeout_handle])]
+    fn handle_packet(mut ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
                 debug!("Rx message: {:?}", msg);
                 match msg {
                     message::FromHost::ShowPerf(perf_data) => {
-                        prev_perf_ms.lock(|ticks| *ticks = 0);
+                        // Reschedule pending no-data timeout.
+                        ctx.shared.timeout_handle.lock(|timeout_opt| {
+                            timeout_opt.take().map(|timeout| timeout.cancel().ok());
+                            *timeout_opt = no_data_timeout::spawn_after(2.secs(), false).ok();
+                        });
+
                         show_perf::spawn(Some(perf_data)).ok();
                     }
                     _ => {}
@@ -317,6 +293,33 @@ mod app {
                     asm::bkpt();
                 }
             }
+        });
+    }
+
+    #[task(shared = [display, timeout_handle])]
+    fn no_data_timeout(ctx: no_data_timeout::Context, clear_screen: bool) {
+        let no_data_timeout::SharedResources {
+            mut display,
+            mut timeout_handle,
+        } = ctx.shared;
+
+        display.lock(|display| {
+            if clear_screen {
+                warn!("No perf data received in a long while");
+                display.clear();
+            } else {
+                info!("No perf data received recently");
+                gfx::draw_message(display, "No data received").ok();
+
+                // Schedule clear screen timeout.
+                timeout_handle.lock(|timeout_opt| {
+                    timeout_opt.take().map(|timeout| timeout.cancel().ok());
+                    // TODO change clock source to allow for longer timeout
+                    *timeout_opt = no_data_timeout::spawn_after(20.secs(), true).ok();
+                });
+            }
+
+            display.flush().ok();
         });
     }
 }
