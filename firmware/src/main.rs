@@ -16,7 +16,7 @@ mod app {
     use crate::{gfx, io};
     use cortex_m::asm;
     use defmt::{assert, debug, error, info, warn};
-    use dwt_systick_monotonic::DwtSystick;
+    use dwt_systick_monotonic::{DwtSystick, ExtU32};
     use embedded_hal::digital::v2::*;
     use postcard;
     use shared::{message, message::PerfData};
@@ -191,9 +191,6 @@ mod app {
 
             // Intervals below must divide evenly into the timer period.
             match *prev_perf_ms {
-                500 => {
-                    show_perf::spawn(None).ok();
-                }
                 2_000 => {
                     info!("No perf received in 2 seconds");
                     display.lock(|display| {
@@ -292,6 +289,10 @@ mod app {
                 (Some(prev), Some(new)) => {
                     // Display average of new and previous perf packets.
                     *prev_perf = Some(new);
+
+                    // Schedule display of unaltered packet.
+                    show_perf::spawn_after(500.millis(), None).ok();
+
                     Some(PerfData {
                         all_cores_load: (prev.all_cores_load + new.all_cores_load) / 2.0,
                         all_cores_avg: new.all_cores_avg,
