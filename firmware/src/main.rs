@@ -7,16 +7,16 @@ use panic_probe as _;
 
 mod gfx;
 mod io;
+mod mono;
 
 #[rtic::app(
     device = stm32f1xx_hal::pac,
     dispatchers = [SPI1, SPI2]
 )]
 mod app {
-    use crate::{gfx, io};
+    use crate::{gfx, io, mono::*};
     use cortex_m::asm;
     use defmt::{assert, debug, error, info, warn};
-    use dwt_systick_monotonic::{DwtSystick, ExtU32};
     use embedded_hal::digital::v2::*;
     use postcard;
     use shared::{message, message::PerfData};
@@ -35,8 +35,8 @@ mod app {
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 
-    #[monotonic(binds = SysTick, default = true)]
-    type SysMono = DwtSystick<{ crate::app::SYSCLK_HZ }>;
+    #[monotonic(binds = TIM2, default = true)]
+    type SysMono = MonoTimer<pac::TIM2, 100>;
 
     // LED blinks on USB activity.
     type ActivityLED = gpioc::PC13<Output<PushPull>>;
@@ -79,7 +79,6 @@ mod app {
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("RTIC 0.6.0-rc.4 init started");
-        let mut cp: cortex_m::Peripherals = ctx.core;
         let dp: pac::Peripherals = ctx.device;
 
         // Setup and apply clock confiugration.
@@ -91,7 +90,7 @@ mod app {
             .sysclk(SYSCLK_HZ.hz())
             .pclk1((SYSCLK_HZ / 2).hz())
             .freeze(&mut flash.acr);
-        let mono = DwtSystick::new(&mut cp.DCB, cp.DWT, cp.SYST, clocks.sysclk().0);
+        let mono = SysMono::new(dp.TIM2, &clocks);
         assert!(clocks.usbclk_valid());
 
         // Countdown timer setup.
