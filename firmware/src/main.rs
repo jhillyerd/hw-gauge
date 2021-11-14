@@ -1,22 +1,21 @@
 #![no_main]
 #![no_std]
 
-use core::sync::atomic::{AtomicUsize, Ordering};
 use defmt_rtt as _;
 use panic_probe as _;
 
 mod gfx;
 mod io;
+mod mono;
 
 #[rtic::app(
     device = stm32f1xx_hal::pac,
     dispatchers = [SPI1, SPI2]
 )]
 mod app {
-    use crate::{gfx, io};
+    use crate::{gfx, io, mono::*};
     use cortex_m::asm;
     use defmt::{assert, debug, error, info, warn};
-    use dwt_systick_monotonic::{DwtSystick, ExtU32};
     use embedded_hal::digital::v2::*;
     use postcard;
     use shared::{message, message::PerfData};
@@ -30,13 +29,16 @@ mod app {
     // Duration to illuninate status LED upon data RX.
     const STATUS_LED_MS: u32 = 50;
 
+    // Delay from no data received to blanking the screen.
+    const BLANK_SCREEN_SECS: u32 = 30;
+
     // Periods are measured in system clock cycles; smaller is more frequent.
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 
-    #[monotonic(binds = SysTick, default = true)]
-    type SysMono = DwtSystick<{ crate::app::SYSCLK_HZ }>;
+    #[monotonic(binds = TIM2, default = true)]
+    type SysMono = MonoTimer<pac::TIM2, 2000>;
 
     // LED blinks on USB activity.
     type ActivityLED = gpioc::PC13<Output<PushPull>>;
@@ -77,7 +79,6 @@ mod app {
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("RTIC 0.6.0-rc.4 init started");
-        let mut cp: cortex_m::Peripherals = ctx.core;
         let dp: pac::Peripherals = ctx.device;
 
         // Setup and apply clock confiugration.
@@ -89,7 +90,7 @@ mod app {
             .sysclk(SYSCLK_HZ.hz())
             .pclk1((SYSCLK_HZ / 2).hz())
             .freeze(&mut flash.acr);
-        let mono = DwtSystick::new(&mut cp.DCB, cp.DWT, cp.SYST, clocks.sysclk().0);
+        let mono = SysMono::new(dp.TIM2, &clocks);
         assert!(clocks.usbclk_valid());
 
         // Peripheral setup.
@@ -296,7 +297,7 @@ mod app {
 
         display.lock(|display| {
             if clear_screen {
-                warn!("No perf data received in a long while");
+                warn!("No perf data received in {} seconds", BLANK_SCREEN_SECS);
                 display.clear();
             } else {
                 info!("No perf data received recently");
@@ -305,8 +306,8 @@ mod app {
                 // Schedule clear screen timeout.
                 timeout_handle.lock(|timeout_opt| {
                     timeout_opt.take().map(|timeout| timeout.cancel().ok());
-                    // TODO change clock source to allow for longer timeout
-                    *timeout_opt = no_data_timeout::spawn_after(20.secs(), true).ok();
+                    *timeout_opt =
+                        no_data_timeout::spawn_after(BLANK_SCREEN_SECS.secs(), true).ok();
                 });
             }
 
@@ -323,11 +324,3 @@ fn handle_usb_event(serial: &mut io::Serial) {
         app::handle_packet::spawn(result).unwrap();
     }
 }
-
-static COUNT: AtomicUsize = AtomicUsize::new(0);
-defmt::timestamp!("{=usize}", {
-    // NOTE(no-CAS) `timestamps` runs with interrupts disabled
-    let n = COUNT.load(Ordering::Relaxed);
-    COUNT.store(n + 1, Ordering::Relaxed);
-    n
-});
