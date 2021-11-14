@@ -72,9 +72,7 @@ mod app {
     }
 
     #[local]
-    struct Local {
-        // timer: timer::CountDownTimer<pac::TIM2>,
-    }
+    struct Local {}
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -93,11 +91,6 @@ mod app {
             .freeze(&mut flash.acr);
         let mono = DwtSystick::new(&mut cp.DCB, cp.DWT, cp.SYST, clocks.sysclk().0);
         assert!(clocks.usbclk_valid());
-
-        // Countdown timer setup.
-        // let mut timer =
-        //     timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(TIMER_HZ.hz());
-        // timer.listen(timer::Event::Update);
 
         // Peripheral setup.
         let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
