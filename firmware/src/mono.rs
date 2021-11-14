@@ -1,7 +1,6 @@
 use core::convert::TryInto;
 
-// RTIC Monotonic impl for the 16-bit timers
-use defmt::println;
+// RTIC Monotonic impl for 16-bit timers.
 pub use fugit::{self, ExtU32};
 use rtic_monotonic::Monotonic;
 use stm32f1xx_hal::{
@@ -24,13 +23,20 @@ impl<const FREQ: u32> MonoTimer<TIM2, FREQ> {
 
         // Configure timer.  If the u16 conversion panics, try increasing FREQ.
         let psc: u16 = (clocks.pclk1_tim().0 / FREQ - 1).try_into().unwrap();
-        println!("u16 psc {}", psc);
         timer.psc.write(|w| w.psc().bits(psc)); // Set prescaler.
         timer.arr.write(|w| w.arr().bits(u16::MAX)); // Set auto-reload value.
+        timer.egr.write(|w| w.ug().set_bit()); // Generate interrupt on overflow.
 
-        timer.egr.write(|w| w.ug().set_bit()); // Reset timer.
+        // Start timer.
         timer.sr.modify(|_, w| w.uif().clear_bit()); // Clear interrupt flag.
-        timer.cr1.modify(|_, w| w.cen().set_bit()); // Enable counter.
+        timer.cr1.modify(|_, w| {
+            w.cen()
+                .set_bit() // Enable counter.
+                .udis()
+                .clear_bit() // Overflow should trigger update event.
+                .urs()
+                .set_bit() // Only overflow triggers interrupt.
+        });
 
         MonoTimer { tim: timer, ovf: 0 }
     }
