@@ -1,7 +1,6 @@
 #![no_main]
 #![no_std]
 
-use core::sync::atomic::{AtomicUsize, Ordering};
 use defmt_rtt as _;
 use panic_probe as _;
 
@@ -29,6 +28,9 @@ mod app {
 
     // Duration to illuninate status LED upon data RX.
     const STATUS_LED_MS: u32 = 50;
+
+    // Delay from no data received to blanking the screen.
+    const BLANK_SCREEN_SECS: u32 = 30;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
     const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
@@ -302,7 +304,7 @@ mod app {
 
         display.lock(|display| {
             if clear_screen {
-                warn!("No perf data received in a long while");
+                warn!("No perf data received in {} seconds", BLANK_SCREEN_SECS);
                 display.clear();
             } else {
                 info!("No perf data received recently");
@@ -312,7 +314,8 @@ mod app {
                 timeout_handle.lock(|timeout_opt| {
                     timeout_opt.take().map(|timeout| timeout.cancel().ok());
                     // TODO change clock source to allow for longer timeout
-                    *timeout_opt = no_data_timeout::spawn_after(20.secs(), true).ok();
+                    *timeout_opt =
+                        no_data_timeout::spawn_after(BLANK_SCREEN_SECS.secs(), true).ok();
                 });
             }
 
@@ -329,11 +332,3 @@ fn handle_usb_event(serial: &mut io::Serial) {
         app::handle_packet::spawn(result).unwrap();
     }
 }
-
-static COUNT: AtomicUsize = AtomicUsize::new(0);
-defmt::timestamp!("{=usize}", {
-    // NOTE(no-CAS) `timestamps` runs with interrupts disabled
-    let n = COUNT.load(Ordering::Relaxed);
-    COUNT.store(n + 1, Ordering::Relaxed);
-    n
-});

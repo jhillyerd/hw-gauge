@@ -30,7 +30,7 @@ impl<const FREQ: u32> MonoTimer<TIM2, FREQ> {
 
         timer.egr.write(|w| w.ug().set_bit()); // Reset timer.
         timer.sr.modify(|_, w| w.uif().clear_bit()); // Clear interrupt flag.
-        timer.cr1.modify(|_, w| w.cen().set_bit()); // Start timer.
+        timer.cr1.modify(|_, w| w.cen().set_bit()); // Enable counter.
 
         MonoTimer { tim: timer, ovf: 0 }
     }
