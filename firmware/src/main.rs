@@ -36,7 +36,7 @@ mod app {
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 
     #[monotonic(binds = TIM2, default = true)]
-    type SysMono = MonoTimer<pac::TIM2, 100>;
+    type SysMono = MonoTimer<pac::TIM2, 2000>;
 
     // LED blinks on USB activity.
     type ActivityLED = gpioc::PC13<Output<PushPull>>;

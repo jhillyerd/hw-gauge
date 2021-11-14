@@ -22,13 +22,11 @@ impl<const FREQ: u32> MonoTimer<TIM2, FREQ> {
         rcc.apb1rstr.modify(|_, w| w.tim2rst().set_bit());
         rcc.apb1rstr.modify(|_, w| w.tim2rst().clear_bit());
 
-        // Configure timer.
-        let ticks = clocks.pclk1_tim().0 / FREQ;
-        let psc: u16 = ((ticks - 1) / (1 << 16)).try_into().unwrap();
-        let arr: u16 = (ticks / (psc + 1) as u32).try_into().unwrap();
-        println!("ticks {}, psc {}, arr {}", ticks, psc, arr); // ticks 720000, psc 10, arr 65454
-        timer.psc.write(|w| w.psc().bits(psc));
-        timer.arr.write(|w| w.arr().bits(arr));
+        // Configure timer.  If the u16 conversion panics, try increasing FREQ.
+        let psc: u16 = (clocks.pclk1_tim().0 / FREQ - 1).try_into().unwrap();
+        println!("u16 psc {}", psc);
+        timer.psc.write(|w| w.psc().bits(psc)); // Set prescaler.
+        timer.arr.write(|w| w.arr().bits(u16::MAX)); // Set auto-reload value.
 
         timer.egr.write(|w| w.ug().set_bit()); // Reset timer.
         timer.sr.modify(|_, w| w.uif().clear_bit()); // Clear interrupt flag.
