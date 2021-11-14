@@ -9,7 +9,10 @@ use stm32f1xx_hal::{
     rcc::Clocks,
 };
 
-pub struct MonoTimer<T, const FREQ: u32>(T);
+pub struct MonoTimer<T, const FREQ: u32> {
+    tim: T,
+    ovf: u32,
+}
 
 impl<const FREQ: u32> MonoTimer<TIM2, FREQ> {
     pub fn new(timer: TIM2, clocks: &Clocks) -> Self {
@@ -31,7 +34,7 @@ impl<const FREQ: u32> MonoTimer<TIM2, FREQ> {
         timer.sr.modify(|_, w| w.uif().clear_bit()); // Clear interrupt flag.
         timer.cr1.modify(|_, w| w.cen().set_bit()); // Start timer.
 
-        MonoTimer(timer)
+        MonoTimer { tim: timer, ovf: 0 }
     }
 }
 
@@ -40,23 +43,50 @@ impl<const FREQ: u32> Monotonic for MonoTimer<TIM2, FREQ> {
     type Duration = fugit::TimerDurationU32<FREQ>;
 
     unsafe fn reset(&mut self) {
-        self.0.dier.modify(|_, w| w.cc1ie().set_bit());
+        self.tim.dier.modify(|_, w| w.cc1ie().set_bit());
     }
 
     #[inline(always)]
     fn now(&mut self) -> Self::Instant {
-        Self::Instant::from_ticks(self.0.cnt.read().cnt().bits().into())
+        let cnt = self.tim.cnt.read().cnt().bits() as u32;
+
+        // If the overflow bit is set, we add this to the timer value. It means the `on_interrupt`
+        // has not yet happened, and we need to compensate here.
+        let ovf = if self.tim.sr.read().uif().bit_is_set() {
+            0x10000
+        } else {
+            0
+        };
+
+        Self::Instant::from_ticks(cnt.wrapping_add(ovf).wrapping_add(self.ovf))
     }
 
     fn set_compare(&mut self, instant: Self::Instant) {
-        self.0.ccr1.write(|w| {
-            w.ccr()
-                .bits(instant.duration_since_epoch().ticks().try_into().unwrap())
-        });
+        let now = self.now();
+        let cnt = self.tim.cnt.read().cnt().bits();
+
+        // Since the timer may or may not overflow based on the requested compare val, we check
+        // how many ticks are left.
+        let val = match instant.checked_duration_since(now) {
+            None => cnt.wrapping_add(0xffff), // In the past, RTIC will handle this
+            Some(x) if x.ticks() <= 0xffff => instant.duration_since_epoch().ticks() as u16, // Will not overflow
+            Some(_) => cnt.wrapping_add(0xffff), // Will overflow, run for as long as possible
+        };
+
+        self.tim.ccr1.write(|w| w.ccr().bits(val));
     }
 
     fn clear_compare_flag(&mut self) {
-        self.0.sr.modify(|_, w| w.cc1if().clear_bit());
+        self.tim.sr.modify(|_, w| w.cc1if().clear_bit());
+    }
+
+    fn on_interrupt(&mut self) {
+        // If there was an overflow, increment the overflow counter.
+        if self.tim.sr.read().uif().bit_is_set() {
+            self.tim.sr.modify(|_, w| w.uif().clear_bit());
+
+            self.ovf += 0x10000;
+        }
     }
 
     #[inline(always)]
