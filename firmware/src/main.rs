@@ -74,9 +74,7 @@ mod app {
     }
 
     #[local]
-    struct Local {
-        // timer: timer::CountDownTimer<pac::TIM2>,
-    }
+    struct Local {}
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -94,11 +92,6 @@ mod app {
             .freeze(&mut flash.acr);
         let mono = SysMono::new(dp.TIM2, &clocks);
         assert!(clocks.usbclk_valid());
-
-        // Countdown timer setup.
-        // let mut timer =
-        //     timer::Timer::tim2(dp.TIM2, &clocks, &mut rcc.apb1).start_count_down(TIMER_HZ.hz());
-        // timer.listen(timer::Event::Update);
 
         // Peripheral setup.
         let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
@@ -313,7 +306,6 @@ mod app {
                 // Schedule clear screen timeout.
                 timeout_handle.lock(|timeout_opt| {
                     timeout_opt.take().map(|timeout| timeout.cancel().ok());
-                    // TODO change clock source to allow for longer timeout
                     *timeout_opt =
                         no_data_timeout::spawn_after(BLANK_SCREEN_SECS.secs(), true).ok();
                 });
