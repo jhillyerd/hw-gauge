@@ -4,9 +4,22 @@ Rust powered CPU and memory monitor.
 
 ![hw-cpu assembled photo](https://github.com/jhillyerd/hw-cpu/blob/main/images/assembled.jpg?raw=true)
 
-## daemon
+## daemon/linux
 
-Windows daemon to send CPU info to device.
+A simple Linux daemon to send CPU info to the device.
+
+## daemon/windows
+
+Windows service to send CPU info to the device.
+
+After building the executable with cargo, create a `hw-cpu` folder in `Program Files`, and copy
+`hw-cpu-winsvc.exe` into it.
+
+Then run the following command from an Administrator PowerShell prompt:
+
+```powershell
+new-service -name "hw-cpu-winsvc" -binarypathname "C:\Program Files\hw-cpu\hw-cpu-winsvc.exe"
+```
 
 ## firmware
 
