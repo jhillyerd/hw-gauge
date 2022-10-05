@@ -5,6 +5,7 @@ stdenv.mkDerivation rec {
   buildInputs = [
     gdb
     libusb
+    openssl
     pkg-config
     rustup
   ];
