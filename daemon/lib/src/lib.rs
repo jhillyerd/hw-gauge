@@ -83,7 +83,7 @@ pub fn detectsend_loop() -> Result<(), Error> {
 
 /// Returns true if local time is between 6am and 6pm.
 fn daytime() -> bool {
-    let now = time::OffsetDateTime::try_now_local();
+    let now = time::OffsetDateTime::now_local();
     if let Ok(now) = now {
         return 6 < now.hour() && now.hour() < 18;
     }
