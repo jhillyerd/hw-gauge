@@ -14,7 +14,9 @@ const DISP_Y_PAD: i32 = 1;
 const FONT: MonoFont = embedded_graphics::mono_font::ascii::FONT_6X13;
 const LINE_Y_PAD: i32 = 4;
 const BAR_WIDTH: u32 = (DISP_WIDTH - DISP_X_PAD * 2) as u32;
+const BAR_HEIGHT: u32 = 10;
 
+// Renders a simple text message, for errors, etc.
 pub fn draw_message<T>(display: &mut T, msg: &str) -> Result<(), T::Error>
 where
     T: DrawTarget<Color = BinaryColor>,
@@ -24,27 +26,23 @@ where
         .text_color(BinaryColor::On)
         .build();
 
+    // Clear screen and render message.
     display.clear(BinaryColor::Off)?;
-
-    Text::new(msg, Point::new(DISP_X_PAD, line_y(1)), text_style).draw(display)?;
+    Text::new(msg, text_point(DISP_X_PAD, 1), text_style).draw(display)?;
 
     return Ok(());
 }
 
+// Renders the full performance display.
 pub fn draw_perf<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
 where
     T: DrawTarget<Color = BinaryColor>,
 {
     // Invert the display during the day to even out burn-in.
-    let background = if perf.daytime {
-        BinaryColor::On
+    let (foreground, background) = if perf.daytime {
+        (BinaryColor::Off, BinaryColor::On)
     } else {
-        BinaryColor::Off
-    };
-    let foreground = if perf.daytime {
-        BinaryColor::Off
-    } else {
-        BinaryColor::On
+        (BinaryColor::On, BinaryColor::Off)
     };
 
     let text_style = MonoTextStyleBuilder::new()
@@ -52,25 +50,26 @@ where
         .text_color(foreground)
         .build();
 
-    let outline_bar = PrimitiveStyleBuilder::new()
+    let outline_bar_style = PrimitiveStyleBuilder::new()
         .stroke_color(foreground)
         .stroke_width(1)
         .fill_color(background)
         .build();
 
-    let solid_bar = PrimitiveStyleBuilder::new().fill_color(foreground).build();
+    let solid_bar_style = PrimitiveStyleBuilder::new().fill_color(foreground).build();
 
+    // Clear and begin drawing.
     display.clear(background)?;
 
+    // CPU heading.
     Text::new("CPU", text_point(DISP_X_PAD, 0), text_style).draw(display)?;
 
     // Average CPU percent display, right aligned.
     let mut avg = percent_string(perf.all_cores_avg, true);
     avg.push_str("% Avg").unwrap();
-    let avg_width = avg.len() as i32 * FONT.character_size.width as i32;
     Text::new(
         avg.as_str(),
-        text_point(DISP_WIDTH - DISP_X_PAD - avg_width, 0),
+        text_point_right(0, avg.as_str()),
         text_style,
     )
     .draw(display)?;
@@ -78,40 +77,40 @@ where
     // Draw longer peak core load bar.
     bar_graph(
         display,
-        outline_bar,
-        Point::new(DISP_X_PAD, line_y(1)),
-        Size::new(BAR_WIDTH, 10),
+        outline_bar_style,
+        Point::new(DISP_X_PAD, line_y_offset(1)),
+        Size::new(BAR_WIDTH, BAR_HEIGHT),
         perf.peak_core_load,
     )?;
 
     // Draw shorter, overlapping all cores load bar.
     bar_graph(
         display,
-        solid_bar,
-        Point::new(DISP_X_PAD, line_y(1)),
-        Size::new(BAR_WIDTH, 10),
+        solid_bar_style,
+        Point::new(DISP_X_PAD, line_y_offset(1)),
+        Size::new(BAR_WIDTH, BAR_HEIGHT),
         perf.all_cores_load,
     )?;
 
+    // RAM heading.
     Text::new("RAM", text_point(DISP_X_PAD, 2), text_style).draw(display)?;
 
     // Free memory percent display, right aligned.
     let mut avg = percent_string(1.0 - perf.memory_load, false);
     avg.push_str("% Free").unwrap();
-    let avg_width = avg.len() as i32 * FONT.character_size.width as i32;
     Text::new(
         avg.as_str(),
-        text_point(DISP_WIDTH - DISP_X_PAD - avg_width, 2),
+        text_point_right(2, avg.as_str()),
         text_style,
     )
     .draw(display)?;
 
-    // Draw used memory bar.
+    // Draw memory used bar.
     bar_graph(
         display,
-        solid_bar,
-        Point::new(DISP_X_PAD, line_y(3)),
-        Size::new(BAR_WIDTH, 10),
+        solid_bar_style,
+        Point::new(DISP_X_PAD, line_y_offset(3)),
+        Size::new(BAR_WIDTH, BAR_HEIGHT),
         perf.memory_load,
     )?;
 
@@ -119,13 +118,19 @@ where
 }
 
 // Returns the screen Y pixel offset for the top of the specified text line number.
-fn line_y(line: i32) -> i32 {
+fn line_y_offset(line: i32) -> i32 {
     DISP_Y_PAD + (line * (LINE_Y_PAD + FONT.character_size.height as i32))
 }
 
 // Returns the point to render text for the specified X pixel offset and line number.
 fn text_point(x: i32, line: i32) -> Point {
-    Point::new(x, line_y(line) + FONT.baseline as i32)
+    Point::new(x, line_y_offset(line) + FONT.baseline as i32)
+}
+
+// Returns the point to render right-aligned text for the specified line number.
+fn text_point_right(line: i32, text: &str) -> Point {
+    let text_width = text.len() as i32 * FONT.character_size.width as i32;
+    text_point(DISP_WIDTH - DISP_X_PAD - text_width, line)
 }
 
 fn bar_graph<T>(
