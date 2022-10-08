@@ -357,7 +357,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hw-cpu-firmware"
+name = "hw-gauge-firmware"
 version = "0.1.0"
 dependencies = [
  "cortex-m",

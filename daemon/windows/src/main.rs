@@ -14,9 +14,9 @@ use windows_service::{
 };
 
 // Windows service parameters.
-const SERVICE_NAME: &str = "hw-cpu";
+const SERVICE_NAME: &str = "hw-gauge";
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
-const LOG_FILE: &str = "hw-cpu-service.log";
+const LOG_FILE: &str = "hw-gauge-service.log";
 
 define_windows_service!(ffi_service_main, service_main);
 

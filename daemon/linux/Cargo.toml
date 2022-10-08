@@ -12,5 +12,5 @@ lib = { path = "../lib" }
 log = "0.4.14"
 
 [[bin]]
-name = "hw-cpu-daemon"
+name = "hw-gauge-daemon"
 path = "src/main.rs"

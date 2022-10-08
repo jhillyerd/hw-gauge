@@ -1,5 +1,5 @@
 [package]
-name = "hw-cpu-firmware"
+name = "hw-gauge-firmware"
 version = "0.1.0"
 authors = ["James Hillyerd <james@hillyerd.com>"]
 edition = "2018"
@@ -46,6 +46,6 @@ codegen-units = 1
 opt-level = "z"
 
 [[bin]]
-name = "hw-cpu-firmware"
+name = "hw-gauge-firmware"
 test = false
 bench = false
