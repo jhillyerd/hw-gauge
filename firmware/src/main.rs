@@ -19,7 +19,7 @@ mod app {
     use fugit::RateExtU32;
     use postcard;
     use shared::{message, message::PerfData};
-    use ssd1306::prelude::*;
+    use ssd1306::{prelude::*, rotation::DisplayRotation, size::DisplaySize128x64, Ssd1306};
     use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, rcc::Clocks, usb};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
@@ -44,24 +44,25 @@ mod app {
     type ActivityLED = gpioc::PC13<Output<PushPull>>;
 
     // 128x64 OLED I2C display.
-    type Display = ssd1306::mode::GraphicsMode<
+    type Display = Ssd1306<
         I2CInterface<
             i2c::BlockingI2c<
                 pac::I2C2,
                 (
-                    gpiob::PB10<Alternate<OpenDrain>>,
-                    gpiob::PB11<Alternate<OpenDrain>>,
+                    Pin<Alternate<OpenDrain>, CRH, 'B', 10>,
+                    Pin<Alternate<OpenDrain>, CRH, 'B', 11>,
                 ),
             >,
         >,
         DisplaySize128x64,
+        ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>,
     >;
 
     #[shared]
     struct Shared {
         led: crate::app::ActivityLED,
         serial: io::Serial,
-        display: crate::app::Display,
+        display: Display,
 
         // Blinks ActivityLED briefly when set true.
         pulse_led: bool,
@@ -134,8 +135,9 @@ mod app {
         );
 
         // Display setup.
-        let disp_if = ssd1306::I2CDIBuilder::new().init(i2c2);
-        let mut display: GraphicsMode<_, _> = ssd1306::Builder::new().connect(disp_if).into();
+        let disp_if = ssd1306::I2CDisplayInterface::new(i2c2);
+        let mut display = Ssd1306::new(disp_if, DisplaySize128x64, DisplayRotation::Rotate0)
+            .into_buffered_graphics_mode();
         display.init().unwrap();
         display.clear();
         display.flush().unwrap();

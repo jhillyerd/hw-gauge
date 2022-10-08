@@ -1,9 +1,9 @@
 use embedded_graphics::{
-    fonts::{Font6x12, Text},
+    mono_font::{ascii::FONT_6X13, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::Rectangle,
-    style::{PrimitiveStyle, PrimitiveStyleBuilder, TextStyleBuilder},
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
+    text::Text,
 };
 use heapless::String;
 use shared::message;
@@ -17,24 +17,23 @@ const BAR_WIDTH: u32 = (DISP_WIDTH - X_PAD * 2) as u32;
 
 pub fn draw_message<T>(display: &mut T, msg: &str) -> Result<(), T::Error>
 where
-    T: DrawTarget<BinaryColor>,
+    T: DrawTarget<Color = BinaryColor>,
 {
-    let text = TextStyleBuilder::new(Font6x12)
+    let text = MonoTextStyleBuilder::new()
+        .font(&FONT_6X13)
         .text_color(BinaryColor::On)
         .build();
 
     display.clear(BinaryColor::Off)?;
 
-    Text::new(msg, Point::new(X_PAD, line_y(1)))
-        .into_styled(text)
-        .draw(display)?;
+    Text::new(msg, Point::new(X_PAD, line_y(1)), text).draw(display)?;
 
     return Ok(());
 }
 
 pub fn draw_perf<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
 where
-    T: DrawTarget<BinaryColor>,
+    T: DrawTarget<Color = BinaryColor>,
 {
     // Invert the display during the day to even out burn-in.
     let background = if perf.daytime {
@@ -48,9 +47,9 @@ where
         BinaryColor::On
     };
 
-    let text = TextStyleBuilder::new(Font6x12)
-        .text_color(foreground)
-        .build();
+    let text = MonoTextStyleBuilder::new()
+        .font(&FONT_6X13)
+        .text_color(foreground).build();
 
     let outline_bar = PrimitiveStyleBuilder::new()
         .stroke_color(foreground)
@@ -62,9 +61,7 @@ where
 
     display.clear(background)?;
 
-    Text::new("CPU", Point::new(X_PAD, line_y(0)))
-        .into_styled(text)
-        .draw(display)?;
+    Text::new("CPU", Point::new(X_PAD, line_y(0)), text).draw(display)?;
 
     // Average CPU percent display.
     let mut avg = percent_string(perf.all_cores_avg, true);
@@ -73,8 +70,8 @@ where
     Text::new(
         avg.as_str(),
         Point::new(DISP_WIDTH - X_PAD - avg_width, line_y(0)),
+        text,
     )
-    .into_styled(text)
     .draw(display)?;
 
     // Draw longer peak core load bar.
@@ -95,9 +92,7 @@ where
         perf.all_cores_load,
     )?;
 
-    Text::new("RAM", Point::new(X_PAD, line_y(2)))
-        .into_styled(text)
-        .draw(display)?;
+    Text::new("RAM", Point::new(X_PAD, line_y(2)), text).draw(display)?;
 
     // Free memory percent display.
     let mut avg = percent_string(1.0 - perf.memory_load, false);
@@ -106,8 +101,8 @@ where
     Text::new(
         avg.as_str(),
         Point::new(DISP_WIDTH - X_PAD - avg_width, line_y(2)),
+        text,
     )
-    .into_styled(text)
     .draw(display)?;
 
     // Draw used memory bar.
@@ -134,20 +129,19 @@ fn bar_graph<T>(
     val: f32,
 ) -> Result<(), T::Error>
 where
-    T: DrawTarget<BinaryColor>,
+    T: DrawTarget<Color = BinaryColor>,
 {
-    let height = size.height as i32;
-    let max_x = (size.width - 1) as i32;
+    let max_x = size.width - 1;
     let max_x_f = max_x as f32;
     let scale_x = |val: f32| {
-        let x = (max_x_f * val) as i32;
+        let x = (max_x_f * val) as u32;
         x.min(max_x)
     };
 
     // Wide, high value bar.
     Rectangle::new(
         Point::new(0, 0) + offset,
-        Point::new(scale_x(val), height) + offset,
+        Size::new(scale_x(val), size.height),
     )
     .into_styled(style)
     .draw(display)?;
