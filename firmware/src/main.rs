@@ -60,7 +60,6 @@ mod app {
 
     #[shared]
     struct Shared {
-        led: crate::app::ActivityLED,
         serial: io::Serial,
         display: Display,
 
@@ -75,7 +74,9 @@ mod app {
     }
 
     #[local]
-    struct Local {}
+    struct Local {
+        led: crate::app::ActivityLED,
+    }
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -163,23 +164,23 @@ mod app {
 
         (
             Shared {
-                led,
                 serial: io::Serial::new(usb_dev, port),
                 display,
                 pulse_led: false,
                 prev_perf: None,
                 timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
             },
-            Local {},
+            Local { led },
             init::Monotonics(mono),
         )
     }
 
-    #[task(shared = [led, pulse_led])]
+    #[task(shared = [pulse_led], local = [led])]
     fn pulse_led(ctx: pulse_led::Context) {
-        let pulse_led::SharedResources { led, pulse_led } = ctx.shared;
+        let mut pulse_led = ctx.shared.pulse_led;
+        let led = ctx.local.led;
 
-        (led, pulse_led).lock(|led: &mut ActivityLED, pulse_led| {
+        pulse_led.lock(|pulse_led| {
             if *pulse_led {
                 led.set_low();
                 *pulse_led = false;
