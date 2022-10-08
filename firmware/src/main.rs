@@ -216,7 +216,7 @@ mod app {
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
-                debug!("Rx message: {:?}", msg);
+                info!("Rx message: {:?}", msg);
                 match msg {
                     message::FromHost::ShowPerf(perf_data) => {
                         // Reschedule pending no-data timeout.
@@ -242,22 +242,26 @@ mod app {
     #[task(shared = [prev_perf, display])]
     fn show_perf(ctx: show_perf::Context, new_perf: Option<PerfData>) {
         let show_perf::SharedResources { prev_perf, display } = ctx.shared;
+        let mut disp_type_descr = "None";
 
         (prev_perf, display).lock(|prev_perf: &mut Option<PerfData>, display: &mut Display| {
             let prev_value = prev_perf.take();
             let perf_data: Option<PerfData> = match (prev_value, new_perf) {
                 (Some(prev), None) => {
                     // Display previous perf packet unaltered.
+                    disp_type_descr = "Prev-Unalt";
                     *prev_perf = Some(prev);
                     Some(prev)
                 }
                 (None, Some(new)) => {
                     // Display new perf packet unaltered, as there is no history.
+                    disp_type_descr = "New-Unalt";
                     *prev_perf = Some(new);
                     Some(new)
                 }
                 (Some(prev), Some(new)) => {
                     // Display average of new and previous perf packets.
+                    disp_type_descr = "Averaged";
                     *prev_perf = Some(new);
 
                     // Schedule display of unaltered packet.
@@ -277,7 +281,7 @@ mod app {
                 }
             };
 
-            debug!("Will display: {:?}", perf_data);
+            debug!("Will display [{}]: {:?}", disp_type_descr, perf_data);
 
             if let Some(perf_data) = perf_data {
                 gfx::draw_perf(display, &perf_data).unwrap();
