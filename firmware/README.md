@@ -12,6 +12,9 @@ cargo install probe-run
 
 Build & flash debug firmware:
 
+*Debug build no longer fits in bluepill flash, but you can still use DEFMT_LOG*
+*with the release build below.*
+
 ```sh
 env DEFMT_LOG=debug cargo run
 ```
