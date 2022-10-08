@@ -16,7 +16,6 @@ mod app {
     use crate::{gfx, io, mono::*};
     use cortex_m::asm;
     use defmt::{assert, debug, error, info, warn};
-    use embedded_hal::digital::v2::*;
     use postcard;
     use shared::{message, message::PerfData};
     use ssd1306::prelude::*;
@@ -83,7 +82,7 @@ mod app {
 
         // Setup and apply clock confiugration.
         let mut flash = dp.FLASH.constrain();
-        let mut rcc = dp.RCC.constrain();
+        let rcc = dp.RCC.constrain();
         let clocks: Clocks = rcc
             .cfgr
             .use_hse(8.mhz())
@@ -94,13 +93,13 @@ mod app {
         assert!(clocks.usbclk_valid());
 
         // Peripheral setup.
-        let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
-        let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
-        let mut gpioc = dp.GPIOC.split(&mut rcc.apb2);
+        let mut gpioa = dp.GPIOA.split();
+        let mut gpiob = dp.GPIOB.split();
+        let mut gpioc = dp.GPIOC.split();
 
         // USB serial setup.
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
-        usb_dp.set_low().unwrap(); // Reset USB bus at startup.
+        usb_dp.set_low(); // Reset USB bus at startup.
         asm::delay(USB_RESET_PERIOD);
         let usb_p = usb::Peripheral {
             usb: dp.USB,
@@ -127,7 +126,6 @@ mod app {
             (scl, sda),
             i2c::Mode::fast(400_000.hz(), i2c::DutyCycle::Ratio2to1),
             clocks,
-            &mut rcc.apb1,
             1000,
             10,
             1000,
@@ -143,7 +141,7 @@ mod app {
 
         // Configure pc13 as output via CR high register.
         let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
-        led.set_high().unwrap(); // LED off
+        led.set_high(); // LED off
 
         // Prevent wait-for-interrupt (default rtic idle) from stalling debug features.
         //
@@ -153,7 +151,7 @@ mod app {
             w.dbg_standby().set_bit();
             w.dbg_stop().set_bit()
         });
-        let _dma1 = dp.DMA1.split(&mut rcc.ahb);
+        let _dma1 = dp.DMA1.split();
 
         // Start tasks.
         pulse_led::spawn().unwrap();
@@ -180,10 +178,10 @@ mod app {
 
         (led, pulse_led).lock(|led: &mut ActivityLED, pulse_led| {
             if *pulse_led {
-                led.set_low().ok();
+                led.set_low();
                 *pulse_led = false;
             } else {
-                led.set_high().ok();
+                led.set_high();
             }
         });
 
