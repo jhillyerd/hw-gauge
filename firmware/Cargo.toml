@@ -21,7 +21,7 @@ rtic-monotonic = "0.1.0-rc.2"
 shared = { path = "../shared" }
 ssd1306 = "0.5.1"
 stm32-usbd = "0.6.0"
-stm32f1xx-hal = { version = "0.8.0", features = ["rt", "stm32f103", "medium", "stm32-usbd" ] }
+stm32f1xx-hal = { version = "0.9.0", features = ["rt", "stm32f103", "medium", "stm32-usbd" ] }
 usb-device = "0.2.7"
 usbd-serial = "0.1.1"
 

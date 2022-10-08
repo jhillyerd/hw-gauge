@@ -16,6 +16,7 @@ mod app {
     use crate::{gfx, io, mono::*};
     use cortex_m::asm;
     use defmt::{assert, debug, error, info, warn};
+    use fugit::RateExtU32;
     use postcard;
     use shared::{message, message::PerfData};
     use ssd1306::prelude::*;
@@ -85,9 +86,9 @@ mod app {
         let rcc = dp.RCC.constrain();
         let clocks: Clocks = rcc
             .cfgr
-            .use_hse(8.mhz())
-            .sysclk(SYSCLK_HZ.hz())
-            .pclk1((SYSCLK_HZ / 2).hz())
+            .use_hse(8.MHz())
+            .sysclk(SYSCLK_HZ.Hz())
+            .pclk1((SYSCLK_HZ / 2).Hz())
             .freeze(&mut flash.acr);
         let mono = SysMono::new(dp.TIM2, &clocks);
         assert!(clocks.usbclk_valid());
@@ -124,7 +125,7 @@ mod app {
         let i2c2 = i2c::BlockingI2c::i2c2(
             dp.I2C2,
             (scl, sda),
-            i2c::Mode::fast(400_000.hz(), i2c::DutyCycle::Ratio2to1),
+            i2c::Mode::fast(400_000.Hz(), i2c::DutyCycle::Ratio2to1),
             clocks,
             1000,
             10,

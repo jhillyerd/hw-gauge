@@ -22,7 +22,7 @@ impl<const FREQ: u32> MonoTimer<TIM2, FREQ> {
         rcc.apb1rstr.modify(|_, w| w.tim2rst().clear_bit());
 
         // Configure timer.  If the u16 conversion panics, try increasing FREQ.
-        let psc: u16 = (clocks.pclk1_tim().0 / FREQ - 1).try_into().unwrap();
+        let psc: u16 = (clocks.pclk1_tim().to_Hz() / FREQ - 1).try_into().unwrap();
         timer.psc.write(|w| w.psc().bits(psc)); // Set prescaler.
         timer.arr.write(|w| w.arr().bits(u16::MAX)); // Set auto-reload value.
         timer.egr.write(|w| w.ug().set_bit()); // Generate interrupt on overflow.
