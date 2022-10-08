@@ -7,15 +7,16 @@ use panic_probe as _;
 mod gfx;
 mod io;
 mod mono;
+mod perf;
 
 #[rtic::app(
     device = stm32f1xx_hal::pac,
     dispatchers = [SPI1, SPI2]
 )]
 mod app {
-    use crate::{gfx, io, mono::*};
+    use crate::{gfx, io, mono::*, perf};
     use cortex_m::asm;
-    use defmt::{assert, debug, error, info, warn};
+    use defmt::{assert, error, info, warn};
     use fugit::RateExtU32;
     use postcard;
     use shared::{message, message::PerfData};
@@ -143,7 +144,7 @@ mod app {
         display.clear();
         display.flush().unwrap();
 
-        // Configure pc13 as output via CR high register.
+        // Configure pc13 (status LED) as output via CR high register.
         let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
         led.set_high(); // LED off
 
@@ -242,48 +243,20 @@ mod app {
     #[task(shared = [prev_perf, display])]
     fn show_perf(ctx: show_perf::Context, new_perf: Option<PerfData>) {
         let show_perf::SharedResources { prev_perf, display } = ctx.shared;
-        let mut disp_type_descr = "None";
 
         (prev_perf, display).lock(|prev_perf: &mut Option<PerfData>, display: &mut Display| {
             let prev_value = prev_perf.take();
-            let perf_data: Option<PerfData> = match (prev_value, new_perf) {
-                (Some(prev), None) => {
-                    // Display previous perf packet unaltered.
-                    disp_type_descr = "Prev-Unalt";
-                    *prev_perf = Some(prev);
-                    Some(prev)
-                }
-                (None, Some(new)) => {
-                    // Display new perf packet unaltered, as there is no history.
-                    disp_type_descr = "New-Unalt";
-                    *prev_perf = Some(new);
-                    Some(new)
-                }
-                (Some(prev), Some(new)) => {
-                    // Display average of new and previous perf packets.
-                    disp_type_descr = "Averaged";
-                    *prev_perf = Some(new);
 
-                    // Schedule display of unaltered packet.
-                    show_perf::spawn_after(500.millis(), None).ok();
-
-                    Some(PerfData {
-                        all_cores_load: (prev.all_cores_load + new.all_cores_load) / 2.0,
-                        all_cores_avg: new.all_cores_avg,
-                        peak_core_load: (prev.peak_core_load + new.peak_core_load) / 2.0,
-                        memory_load: new.memory_load,
-                        daytime: new.daytime,
-                    })
-                }
-                _ => {
-                    // This is expected during startup.
-                    None
-                }
+            // Calculate perf data to display, and previous data to keep.
+            let mut state = perf::State {
+                previous: prev_value,
+                current: new_perf,
             };
+            state = perf::update_state(state);
+            *prev_perf = state.previous;
 
-            debug!("Will display [{}]: {:?}", disp_type_descr, perf_data);
-
-            if let Some(perf_data) = perf_data {
+            // Display current perf data if available.
+            if let Some(perf_data) = state.current {
                 gfx::draw_perf(display, &perf_data).unwrap();
                 if let Err(_) = display.flush() {
                     error!("Failed to flush display");
