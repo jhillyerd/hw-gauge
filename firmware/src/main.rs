@@ -78,7 +78,7 @@ mod app {
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
-        info!("RTIC 0.6.0-rc.4 init started");
+        info!("RTIC init started");
         let dp: pac::Peripherals = ctx.device;
 
         // Setup and apply clock confiugration.
