@@ -3,6 +3,15 @@ use defmt::{debug, error};
 use fugit::ExtU32;
 use shared::message::PerfData;
 
+// Frames per second for interpolated display updates.
+const FRAMES_PER_SECOND: u32 = 5;
+
+// CPU bar fall-off rate in percent per second.
+const FALL_PCT_PER_SECOND: f32 = 1.0;
+
+const FRAME_MS: u32 = 1000 / FRAMES_PER_SECOND;
+const FALL_FRAC_PER_FRAME: f32 = FALL_PCT_PER_SECOND / 100.0 / FRAMES_PER_SECOND as f32;
+
 /// Represents the previous and current PerfData states.
 pub struct State {
     pub previous: Option<PerfData>,
@@ -41,25 +50,36 @@ pub fn update_state(input: State) -> State {
             }
         }
 
-        // Displays average of new and previous perf packets.
-        (Some(prev), Some(new)) => {
-            update_type_descr = "Averaged";
+        // Fresh data, sets up animated display from prev to target values.
+        (Some(prev), Some(target)) => {
+            update_type_descr = "Blended";
 
-            // Schedule display of unaltered packet.
-            if let Err(_) = crate::app::show_perf::spawn_after(500.millis(), new) {
-                error!("Failed to request show_perf::spawn_after");
-                asm::bkpt();
+            // Schedule immediate & upcoming frames. Does not schedule frame at 1s, as that
+            // is when the next PerfData packet should arrive from the host.
+            let mut prev = prev;
+            for frame in 0..FRAMES_PER_SECOND {
+                // Calculate perf data for this frame, store in prev for basis of next frame.
+                prev = PerfData {
+                    all_cores_load: update_cpu_load(prev.all_cores_load, target.all_cores_load),
+                    all_cores_avg: target.all_cores_avg,
+                    peak_core_load: update_cpu_load(prev.peak_core_load, target.peak_core_load),
+                    memory_load: target.memory_load,
+                    daytime: target.daytime,
+                };
+
+                let delay = frame * FRAME_MS;
+
+                if let Err(_) = crate::app::show_perf::spawn_after(delay.millis(), prev) {
+                    error!("Failed to request show_perf::spawn_after");
+                    asm::bkpt();
+                }
             }
 
+            // Return the last calculated frame to caller, instead of target, to continue
+            // smooth animation to the from the last frame towards the next target.
             State {
-                previous: Some(new),
-                current: Some(PerfData {
-                    all_cores_load: update_cpu_load(prev.all_cores_load, new.all_cores_load),
-                    all_cores_avg: new.all_cores_avg,
-                    peak_core_load: update_cpu_load(prev.peak_core_load, new.peak_core_load),
-                    memory_load: new.memory_load,
-                    daytime: new.daytime,
-                }),
+                previous: Some(prev),
+                current: None,
             }
         }
 
@@ -75,7 +95,14 @@ pub fn update_state(input: State) -> State {
     result
 }
 
-// Averages previous and new CPU loads together.
-fn update_cpu_load(prev_load: f32, new_load: f32) -> f32 {
-    (prev_load + new_load) / 2.0
+// Approximates a VU-meter, jumps up quickly, falls slowly.
+fn update_cpu_load(prev_load: f32, target_load: f32) -> f32 {
+    if target_load > prev_load {
+        // Jump to higher loads immediately.
+        target_load
+    } else {
+        // Ease in to lower loads.
+        // debug!("target: {}, prev: {}, fallcfg: {}", target_load, prev_load, FALL_FRAC_PER_FRAME);
+        f32::max(target_load, prev_load - FALL_FRAC_PER_FRAME)
+    }
 }

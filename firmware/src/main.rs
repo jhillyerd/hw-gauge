@@ -16,7 +16,7 @@ mod perf;
 mod app {
     use crate::{gfx, io, mono::*, perf};
     use cortex_m::asm;
-    use defmt::{assert, error, info, warn};
+    use defmt::{assert, debug, error, info, warn};
     use fugit::RateExtU32;
     use postcard;
     use shared::{message, message::PerfData};
@@ -250,24 +250,19 @@ mod app {
                 // Calculate perf data to display, and previous data to keep.
                 let mut state = perf::State {
                     previous: prev_value,
+                    // TODO: current is useless
                     current: new_perf,
                 };
                 state = perf::update_state(state);
                 *prev_perf = state.previous;
-
-                // Display current perf data if available.
-                if let Some(perf_data) = state.current {
-                    if let Err(_) = show_perf::spawn(perf_data) {
-                        error!("Failed to request show_perf::spawn");
-                        asm::bkpt();
-                    }
-                }
             });
     }
 
     /// Immediately displays provided PerfData.
     #[task(capacity = 30, shared = [display])]
     fn show_perf(mut ctx: show_perf::Context, perf: PerfData) {
+        debug!("Displ CPU PEAK: {}", perf.peak_core_load);
+
         ctx.shared.display.lock(|display: &mut Display| {
             gfx::draw_perf(display, &perf).unwrap();
             if let Err(_) = display.flush() {
