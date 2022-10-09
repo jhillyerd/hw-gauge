@@ -226,7 +226,7 @@ mod app {
                             *timeout_opt = no_data_timeout::spawn_after(2.secs(), false).ok();
                         });
 
-                        show_perf::spawn(Some(perf_data)).ok();
+                        handle_perf::spawn(Some(perf_data)).ok();
                     }
                     _ => {}
                 }
@@ -240,29 +240,40 @@ mod app {
 
     /// Displays PerfData smoothly, by averaging new_perf with prev_perf.  It then updates
     /// prev_perf, and schedules itself to display that value directly.
-    #[task(shared = [prev_perf, display])]
-    fn show_perf(ctx: show_perf::Context, new_perf: Option<PerfData>) {
-        let show_perf::SharedResources { prev_perf, display } = ctx.shared;
+    #[task(shared = [prev_perf])]
+    fn handle_perf(mut ctx: handle_perf::Context, new_perf: Option<PerfData>) {
+        ctx.shared
+            .prev_perf
+            .lock(|prev_perf: &mut Option<PerfData>| {
+                let prev_value = prev_perf.take();
 
-        (prev_perf, display).lock(|prev_perf: &mut Option<PerfData>, display: &mut Display| {
-            let prev_value = prev_perf.take();
+                // Calculate perf data to display, and previous data to keep.
+                let mut state = perf::State {
+                    previous: prev_value,
+                    current: new_perf,
+                };
+                state = perf::update_state(state);
+                *prev_perf = state.previous;
 
-            // Calculate perf data to display, and previous data to keep.
-            let mut state = perf::State {
-                previous: prev_value,
-                current: new_perf,
-            };
-            state = perf::update_state(state);
-            *prev_perf = state.previous;
-
-            // Display current perf data if available.
-            if let Some(perf_data) = state.current {
-                gfx::draw_perf(display, &perf_data).unwrap();
-                if let Err(_) = display.flush() {
-                    error!("Failed to flush display");
-                    #[cfg(debug_assertions)]
-                    asm::bkpt();
+                // Display current perf data if available.
+                if let Some(perf_data) = state.current {
+                    if let Err(_) = show_perf::spawn(perf_data) {
+                        error!("Failed to request show_perf::spawn");
+                        asm::bkpt();
+                    }
                 }
+            });
+    }
+
+    /// Immediately displays provided PerfData.
+    #[task(capacity = 30, shared = [display])]
+    fn show_perf(mut ctx: show_perf::Context, perf: PerfData) {
+        ctx.shared.display.lock(|display: &mut Display| {
+            gfx::draw_perf(display, &perf).unwrap();
+            if let Err(_) = display.flush() {
+                error!("Failed to flush display");
+                #[cfg(debug_assertions)]
+                asm::bkpt();
             }
         });
     }

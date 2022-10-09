@@ -1,4 +1,5 @@
-use defmt::debug;
+use cortex_m::asm;
+use defmt::{debug, error};
 use fugit::ExtU32;
 use shared::message::PerfData;
 
@@ -45,7 +46,10 @@ pub fn update_state(input: State) -> State {
             update_type_descr = "Averaged";
 
             // Schedule display of unaltered packet.
-            crate::app::show_perf::spawn_after(500.millis(), None).ok();
+            if let Err(_) = crate::app::show_perf::spawn_after(500.millis(), new) {
+                error!("Failed to request show_perf::spawn_after");
+                asm::bkpt();
+            }
 
             State {
                 previous: Some(new),
