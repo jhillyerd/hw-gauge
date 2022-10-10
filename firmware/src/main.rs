@@ -3,6 +3,7 @@
 
 use defmt_rtt as _;
 use panic_probe as _;
+use defmt::error;
 
 mod gfx;
 mod io;
@@ -306,6 +307,8 @@ fn handle_usb_event(serial: &mut io::Serial) {
     let mut result = [0u8; io::BUF_BYTES];
     let len = serial.read_packet(&mut result[..]).unwrap();
     if len > 0 {
-        app::handle_packet::spawn(result).unwrap();
+        if let Err(_) = app::handle_packet::spawn(result) {
+            error!("Failed to spawn handle_packet, likely still handling last packet")
+        }
     }
 }

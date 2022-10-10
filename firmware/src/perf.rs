@@ -4,10 +4,10 @@ use fugit::ExtU32;
 use shared::message::PerfData;
 
 // Frames per second for interpolated display updates.
-const FRAMES_PER_SECOND: u32 = 5;
+const FRAMES_PER_SECOND: u32 = 15;
 
-// CPU bar fall-off rate in percent per second.
-const FALL_PCT_PER_SECOND: f32 = 1.0;
+// CPU bar fall-off rate in percentage points per second.
+const FALL_PCT_PER_SECOND: f32 = 25.0;
 
 const FRAME_MS: u32 = 1000 / FRAMES_PER_SECOND;
 const FALL_FRAC_PER_FRAME: f32 = FALL_PCT_PER_SECOND / 100.0 / FRAMES_PER_SECOND as f32;
