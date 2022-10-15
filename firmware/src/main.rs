@@ -1,6 +1,7 @@
 #![no_main]
 #![no_std]
 
+use defmt::error;
 use defmt_rtt as _;
 use panic_probe as _;
 
@@ -11,12 +12,16 @@ mod perf;
 
 #[rtic::app(
     device = stm32f1xx_hal::pac,
-    dispatchers = [SPI1, SPI2]
+    dispatchers = [SPI1, SPI2, CAN_RX1, CAN_SCE]
 )]
 mod app {
-    use crate::{gfx, io, mono::*, perf};
+    use crate::{
+        gfx, io,
+        mono::*,
+        perf::{self, FramesDeque},
+    };
     use cortex_m::asm;
-    use defmt::{assert, error, info, warn};
+    use defmt::{assert, debug, error, info, warn};
     use fugit::RateExtU32;
     use postcard;
     use shared::{message, message::PerfData};
@@ -61,6 +66,9 @@ mod app {
 
     #[shared]
     struct Shared {
+        // Queue of perf data frames to display.
+        frames: FramesDeque,
+
         serial: io::Serial,
         display: Display,
 
@@ -160,11 +168,13 @@ mod app {
 
         // Start tasks.
         pulse_led::spawn().unwrap();
+        show_perf::spawn().unwrap();
 
         info!("RTIC init completed");
 
         (
             Shared {
+                frames: FramesDeque::new(),
                 serial: io::Serial::new(usb_dev, port),
                 display,
                 pulse_led: false,
@@ -194,7 +204,7 @@ mod app {
         pulse_led::spawn_after(STATUS_LED_MS.millis()).unwrap();
     }
 
-    #[task(priority = 2, binds = USB_HP_CAN_TX, shared = [serial, pulse_led])]
+    #[task(priority = 4, binds = USB_HP_CAN_TX, shared = [serial, pulse_led])]
     fn usb_high(ctx: usb_high::Context) {
         let usb_high::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
@@ -203,7 +213,7 @@ mod app {
         });
     }
 
-    #[task(priority = 2, binds = USB_LP_CAN_RX0, shared = [serial, pulse_led])]
+    #[task(priority = 4, binds = USB_LP_CAN_RX0, shared = [serial, pulse_led])]
     fn usb_low(ctx: usb_low::Context) {
         let usb_low::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
@@ -212,12 +222,12 @@ mod app {
         });
     }
 
-    #[task(shared = [timeout_handle])]
+    #[task(priority = 3, shared = [timeout_handle])]
     fn handle_packet(mut ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
-                info!("Rx message: {:?}", msg);
+                debug!("Rx message: {:?}", msg);
                 match msg {
                     message::FromHost::ShowPerf(perf_data) => {
                         // Reschedule pending no-data timeout.
@@ -226,7 +236,7 @@ mod app {
                             *timeout_opt = no_data_timeout::spawn_after(2.secs(), false).ok();
                         });
 
-                        handle_perf::spawn(Some(perf_data)).ok();
+                        handle_perf::spawn(perf_data).ok();
                     }
                     _ => {}
                 }
@@ -240,45 +250,45 @@ mod app {
 
     /// Displays PerfData smoothly, by averaging new_perf with prev_perf.  It then updates
     /// prev_perf, and schedules itself to display that value directly.
-    #[task(shared = [prev_perf])]
-    fn handle_perf(mut ctx: handle_perf::Context, new_perf: Option<PerfData>) {
-        ctx.shared
-            .prev_perf
-            .lock(|prev_perf: &mut Option<PerfData>| {
+    #[task(priority = 2, shared = [prev_perf, frames])]
+    fn handle_perf(ctx: handle_perf::Context, new_perf: PerfData) {
+        let handle_perf::SharedResources { prev_perf, frames } = ctx.shared;
+
+        (prev_perf, frames).lock(
+            |prev_perf: &mut Option<PerfData>, frames: &mut FramesDeque| {
                 let prev_value = prev_perf.take();
 
                 // Calculate perf data to display, and previous data to keep.
-                let mut state = perf::State {
-                    previous: prev_value,
-                    current: new_perf,
-                };
-                state = perf::update_state(state);
-                *prev_perf = state.previous;
-
-                // Display current perf data if available.
-                if let Some(perf_data) = state.current {
-                    if let Err(_) = show_perf::spawn(perf_data) {
-                        error!("Failed to request show_perf::spawn");
-                        asm::bkpt();
-                    }
-                }
-            });
+                *prev_perf = perf::update_state(prev_value, new_perf, frames);
+            },
+        );
     }
 
     /// Immediately displays provided PerfData.
-    #[task(capacity = 30, shared = [display])]
-    fn show_perf(mut ctx: show_perf::Context, perf: PerfData) {
-        ctx.shared.display.lock(|display: &mut Display| {
-            gfx::draw_perf(display, &perf).unwrap();
-            if let Err(_) = display.flush() {
-                error!("Failed to flush display");
-                #[cfg(debug_assertions)]
-                asm::bkpt();
+    #[task(shared = [display, frames])]
+    fn show_perf(ctx: show_perf::Context) {
+        let show_perf::SharedResources { display, frames } = ctx.shared;
+
+        if let Err(_) = show_perf::spawn_at(monotonics::now() + perf::FRAME_MS.millis()) {
+            error!("Failed to request show_perf::spawn_at");
+            asm::bkpt();
+        }
+
+        // Pop a frame off the front of the frame queue and display it.
+        (display, frames).lock(|display: &mut Display, frames: &mut FramesDeque| {
+            if let Some(frame) = frames.pop_front() {
+                gfx::draw_perf(display, &frame).unwrap();
+                if let Err(_) = display.flush() {
+                    error!("Failed to flush display");
+                    #[cfg(debug_assertions)]
+                    asm::bkpt();
+                }
             }
         });
+
     }
 
-    #[task(shared = [display, timeout_handle])]
+    #[task(priority = 2, shared = [display, timeout_handle])]
     fn no_data_timeout(ctx: no_data_timeout::Context, clear_screen: bool) {
         let no_data_timeout::SharedResources {
             mut display,
@@ -311,6 +321,8 @@ fn handle_usb_event(serial: &mut io::Serial) {
     let mut result = [0u8; io::BUF_BYTES];
     let len = serial.read_packet(&mut result[..]).unwrap();
     if len > 0 {
-        app::handle_packet::spawn(result).unwrap();
+        if let Err(_) = app::handle_packet::spawn(result) {
+            error!("Failed to spawn handle_packet, likely still handling last packet")
+        }
     }
 }
