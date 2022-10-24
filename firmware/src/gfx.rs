@@ -1,6 +1,6 @@
 use embedded_graphics::{
     mono_font::{MonoFont, MonoTextStyleBuilder},
-    pixelcolor::BinaryColor,
+    pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
     text::Text,
@@ -15,19 +15,22 @@ const FONT: MonoFont = embedded_graphics::mono_font::ascii::FONT_6X13;
 const LINE_Y_PAD: i32 = 4;
 const BAR_WIDTH: u32 = (DISP_WIDTH - DISP_X_PAD * 2) as u32;
 const BAR_HEIGHT: u32 = 10;
+const BACKGROUND_COLOR: Rgb565 = Rgb565::BLACK;
+const TEXT_COLOR: Rgb565 = Rgb565::WHITE;
+const BAR_COLOR: Rgb565 = Rgb565::WHITE;
 
 // Renders a simple text message, for errors, etc.
 pub fn draw_message<T>(display: &mut T, msg: &str) -> Result<(), T::Error>
 where
-    T: DrawTarget<Color = BinaryColor>,
+    T: DrawTarget<Color = Rgb565>,
 {
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT)
-        .text_color(BinaryColor::On)
+        .text_color(TEXT_COLOR)
         .build();
 
     // Clear screen and render message.
-    display.clear(BinaryColor::Off)?;
+    display.clear(BACKGROUND_COLOR)?;
     Text::new(msg, text_point(DISP_X_PAD, 1), text_style).draw(display)?;
 
     return Ok(());
@@ -36,13 +39,13 @@ where
 // Renders the full performance display.
 pub fn draw_perf<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
 where
-    T: DrawTarget<Color = BinaryColor>,
+    T: DrawTarget<Color = Rgb565>,
 {
     // Invert the display during the day to even out burn-in.
     let (foreground, background) = if perf.daytime {
-        (BinaryColor::Off, BinaryColor::On)
+        (BACKGROUND_COLOR, BAR_COLOR)
     } else {
-        (BinaryColor::On, BinaryColor::Off)
+        (BAR_COLOR, BACKGROUND_COLOR)
     };
 
     let text_style = MonoTextStyleBuilder::new()
@@ -135,13 +138,13 @@ fn text_point_right(line: i32, text: &str) -> Point {
 
 fn bar_graph<T>(
     display: &mut T,
-    style: PrimitiveStyle<BinaryColor>,
+    style: PrimitiveStyle<Rgb565>,
     offset: Point,
     size: Size,
     val: f32,
 ) -> Result<(), T::Error>
 where
-    T: DrawTarget<Color = BinaryColor>,
+    T: DrawTarget<Color = Rgb565>,
 {
     let max_x = size.width - 1;
     let max_x_f = max_x as f32;

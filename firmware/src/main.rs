@@ -7,61 +7,56 @@ use panic_probe as _;
 
 mod gfx;
 mod io;
-mod mono;
 mod perf;
 
 #[rtic::app(
-    device = stm32f1xx_hal::pac,
-    dispatchers = [SPI1, SPI2, CAN_RX1, CAN_SCE]
+    device = rp_pico::pac,
+    peripherals = true,
+    dispatchers = [ PIO0_IRQ_0, PIO0_IRQ_1, PIO1_IRQ_0, PIO1_IRQ_1 ],
 )]
 mod app {
     use crate::{
         gfx, io,
-        mono::*,
         perf::{self, FramesDeque},
     };
     use cortex_m::asm;
-    use defmt::{assert, debug, error, info, warn};
-    use fugit::RateExtU32;
+    use defmt::{debug, error, info, warn};
+    use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
+    use embedded_hal::{digital::v2::OutputPin, spi::MODE_0};
+    use fugit::{ExtU64, RateExtU32};
     use postcard;
+    use rp_pico::hal::{self, clocks::Clock, usb, watchdog::Watchdog};
     use shared::{message, message::PerfData};
-    use ssd1306::{prelude::*, rotation::DisplayRotation, size::DisplaySize128x64, Ssd1306};
-    use stm32f1xx_hal::{gpio::*, i2c, pac, prelude::*, rcc::Clocks, usb};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
-    // Frequency of the system clock, which will also be the frequency of CYCCNT.
-    const SYSCLK_HZ: u32 = 72_000_000;
+    // Frequency of the board crystal.
+    const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
 
     // Duration to illuninate status LED upon data RX.
-    const STATUS_LED_MS: u32 = 50;
+    const STATUS_LED_MS: u64 = 50;
 
     // Delay from no data received to blanking the screen.
-    const BLANK_SCREEN_SECS: u32 = 30;
+    const BLANK_SCREEN_SECS: u64 = 30;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
-    const USB_RESET_PERIOD: u32 = SYSCLK_HZ / 100;
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 
-    #[monotonic(binds = TIM2, default = true)]
-    type SysMono = MonoTimer<pac::TIM2, 2000>;
+    #[monotonic(binds = TIMER_IRQ_0, default = true)]
+    type SysMono = rp2040_monotonic::Rp2040Monotonic;
 
     // LED blinks on USB activity.
-    type ActivityLED = gpioc::PC13<Output<PushPull>>;
+    type ActivityLED = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>;
 
-    // 128x64 OLED I2C display.
-    type Display = Ssd1306<
-        I2CInterface<
-            i2c::BlockingI2c<
-                pac::I2C2,
-                (
-                    Pin<Alternate<OpenDrain>, CRH, 'B', 10>,
-                    Pin<Alternate<OpenDrain>, CRH, 'B', 11>,
-                ),
-            >,
+    // ST7789V IPS screen, aka T-Display.
+    type Display = mipidsi::Display<
+        display_interface_spi::SPIInterface<
+            hal::Spi<hal::spi::Enabled, hal::pac::SPI0, 8>,
+            hal::gpio::Pin<hal::gpio::pin::bank0::Gpio1, hal::gpio::Output<hal::gpio::PushPull>>,
+            hal::gpio::Pin<hal::gpio::pin::bank0::Gpio5, hal::gpio::Output<hal::gpio::PushPull>>,
         >,
-        DisplaySize128x64,
-        ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>,
+        mipidsi::models::ST7789,
+        hal::gpio::Pin<hal::gpio::pin::bank0::Gpio0, hal::gpio::Output<hal::gpio::PushPull>>,
     >;
 
     #[shared]
@@ -87,38 +82,54 @@ mod app {
         led: crate::app::ActivityLED,
     }
 
-    #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBusType>> = None])]
+    #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBus>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("RTIC init started");
-        let dp: pac::Peripherals = ctx.device;
 
-        // Setup and apply clock confiugration.
-        let mut flash = dp.FLASH.constrain();
-        let rcc = dp.RCC.constrain();
-        let clocks: Clocks = rcc
-            .cfgr
-            .use_hse(8.MHz())
-            .sysclk(SYSCLK_HZ.Hz())
-            .pclk1((SYSCLK_HZ / 2).Hz())
-            .freeze(&mut flash.acr);
-        let mono = SysMono::new(dp.TIM2, &clocks);
-        assert!(clocks.usbclk_valid());
+        // Soft-reset does not release the hardware spinlocks.
+        // Release them now to avoid a deadlock after debug or watchdog reset.
+        unsafe {
+            hal::sio::spinlock_reset();
+        }
 
-        // Peripheral setup.
-        let mut gpioa = dp.GPIOA.split();
-        let mut gpiob = dp.GPIOB.split();
-        let mut gpioc = dp.GPIOC.split();
+        // Setup clock & timer.
+        let mut resets = ctx.device.RESETS;
+        let mut watchdog = Watchdog::new(ctx.device.WATCHDOG);
+        let clocks = hal::clocks::init_clocks_and_plls(
+            XOSC_CRYSTAL_FREQ,
+            ctx.device.XOSC,
+            ctx.device.CLOCKS,
+            ctx.device.PLL_SYS,
+            ctx.device.PLL_USB,
+            &mut resets,
+            &mut watchdog,
+        )
+        .ok()
+        .unwrap();
 
-        // USB serial setup.
-        let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
-        usb_dp.set_low(); // Reset USB bus at startup.
-        asm::delay(USB_RESET_PERIOD);
-        let usb_p = usb::Peripheral {
-            usb: dp.USB,
-            pin_dm: gpioa.pa11,
-            pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
-        };
-        *ctx.local.usb_bus = Some(usb::UsbBus::new(usb_p));
+        let mono = SysMono::new(ctx.device.TIMER);
+        let mut delay =
+            cortex_m::delay::Delay::new(ctx.core.SYST, clocks.system_clock.freq().to_Hz());
+
+        // Setup status LED.
+        let sio = hal::Sio::new(ctx.device.SIO);
+        let pins = hal::gpio::Pins::new(
+            ctx.device.IO_BANK0,
+            ctx.device.PADS_BANK0,
+            sio.gpio_bank0,
+            &mut resets,
+        );
+        let mut led: ActivityLED = pins.gpio25.into_push_pull_output();
+        led.set_low().unwrap();
+
+        // Setup USB bus and serial port device.
+        *ctx.local.usb_bus = Some(UsbBusAllocator::new(usb::UsbBus::new(
+            ctx.device.USBCTRL_REGS,
+            ctx.device.USBCTRL_DPRAM,
+            clocks.usb_clock,
+            true,
+            &mut resets,
+        )));
         let port = usbd_serial::SerialPort::new(ctx.local.usb_bus.as_ref().unwrap());
         let usb_dev = UsbDeviceBuilder::new(
             ctx.local.usb_bus.as_ref().unwrap(),
@@ -130,41 +141,27 @@ mod app {
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
 
-        // I2C setup.
-        let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
-        let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
-        let i2c2 = i2c::BlockingI2c::i2c2(
-            dp.I2C2,
-            (scl, sda),
-            i2c::Mode::fast(400_000.Hz(), i2c::DutyCycle::Ratio2to1),
-            clocks,
-            1000,
-            10,
-            1000,
-            1000,
+        // Setup SPI for onboard T-Display.
+        // TODO confirm correct spi pins in use?
+        let _ = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
+        let _ = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
+        let spi = hal::Spi::<_, _, 8>::new(ctx.device.SPI0).init(
+            &mut resets,
+            125.MHz(),
+            16.MHz(),
+            &MODE_0,
         );
 
-        // Display setup.
-        let disp_if = ssd1306::I2CDisplayInterface::new(i2c2);
-        let mut display = Ssd1306::new(disp_if, DisplaySize128x64, DisplayRotation::Rotate0)
-            .into_buffered_graphics_mode();
-        display.init().unwrap();
-        display.clear();
-        display.flush().unwrap();
-
-        // Configure pc13 (status LED) as output via CR high register.
-        let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
-        led.set_high(); // LED off
-
-        // Prevent wait-for-interrupt (default rtic idle) from stalling debug features.
-        //
-        // See: https://github.com/probe-rs/probe-rs/issues/350
-        dp.DBGMCU.cr.modify(|_, w| {
-            w.dbg_sleep().set_bit();
-            w.dbg_standby().set_bit();
-            w.dbg_stop().set_bit()
-        });
-        let _dma1 = dp.DMA1.split();
+        // Setup display.
+        let cs_pin = pins.gpio5.into_push_pull_output();
+        let dc_pin = pins.gpio1.into_push_pull_output();
+        let rst_pin = pins.gpio0.into_push_pull_output();
+        let display_if = display_interface_spi::SPIInterface::new(spi, dc_pin, cs_pin);
+        let mut display = mipidsi::builder::Builder::st7789(display_if)
+            .with_display_size(240, 135)
+            .init(&mut delay, Some(rst_pin))
+            .expect("display initializes");
+        display.clear(Rgb565::BLACK).expect("display clears");
 
         // Start tasks.
         pulse_led::spawn().unwrap();
@@ -186,6 +183,13 @@ mod app {
         )
     }
 
+    #[idle()]
+    fn idle(_ctx: idle::Context) -> ! {
+        loop {
+            cortex_m::asm::nop();
+        }
+    }
+
     #[task(shared = [pulse_led], local = [led])]
     fn pulse_led(ctx: pulse_led::Context) {
         let mut pulse_led = ctx.shared.pulse_led;
@@ -193,10 +197,10 @@ mod app {
 
         pulse_led.lock(|pulse_led| {
             if *pulse_led {
-                led.set_low();
+                led.set_low().ok();
                 *pulse_led = false;
             } else {
-                led.set_high();
+                led.set_high().ok();
             }
         });
 
@@ -204,18 +208,9 @@ mod app {
         pulse_led::spawn_after(STATUS_LED_MS.millis()).unwrap();
     }
 
-    #[task(priority = 4, binds = USB_HP_CAN_TX, shared = [serial, pulse_led])]
-    fn usb_high(ctx: usb_high::Context) {
-        let usb_high::SharedResources { serial, pulse_led } = ctx.shared;
-        (serial, pulse_led).lock(|serial, pulse_led| {
-            crate::handle_usb_event(serial);
-            *pulse_led = true;
-        });
-    }
-
-    #[task(priority = 4, binds = USB_LP_CAN_RX0, shared = [serial, pulse_led])]
-    fn usb_low(ctx: usb_low::Context) {
-        let usb_low::SharedResources { serial, pulse_led } = ctx.shared;
+    #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led])]
+    fn usb_event(ctx: usb_event::Context) {
+        let usb_event::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
             crate::handle_usb_event(serial);
             *pulse_led = true;
@@ -278,14 +273,13 @@ mod app {
         (display, frames).lock(|display: &mut Display, frames: &mut FramesDeque| {
             if let Some(frame) = frames.pop_front() {
                 gfx::draw_perf(display, &frame).unwrap();
-                if let Err(_) = display.flush() {
-                    error!("Failed to flush display");
-                    #[cfg(debug_assertions)]
-                    asm::bkpt();
-                }
+                // if let Err(_) = display.flush() {
+                //     error!("Failed to flush display");
+                //     #[cfg(debug_assertions)]
+                //     asm::bkpt();
+                // }
             }
         });
-
     }
 
     #[task(priority = 2, shared = [display, timeout_handle])]
@@ -298,7 +292,7 @@ mod app {
         display.lock(|display| {
             if clear_screen {
                 warn!("No perf data received in {} seconds", BLANK_SCREEN_SECS);
-                display.clear();
+                display.clear(Rgb565::BLACK).ok();
             } else {
                 info!("No perf data received recently");
                 gfx::draw_message(display, "No data received").ok();
@@ -310,8 +304,6 @@ mod app {
                         no_data_timeout::spawn_after(BLANK_SCREEN_SECS.secs(), true).ok();
                 });
             }
-
-            display.flush().ok();
         });
     }
 }
@@ -321,6 +313,7 @@ fn handle_usb_event(serial: &mut io::Serial) {
     let mut result = [0u8; io::BUF_BYTES];
     let len = serial.read_packet(&mut result[..]).unwrap();
     if len > 0 {
+        defmt::debug!("non-empty packet recvd");
         if let Err(_) = app::handle_packet::spawn(result) {
             error!("Failed to spawn handle_packet, likely still handling last packet")
         }

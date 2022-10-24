@@ -9,7 +9,7 @@ const FRAMES_PER_SECOND: u32 = 15;
 const FALL_PCT_PER_SECOND: f32 = 70.0;
 
 /// Delay between animation frames in millseconds.
-pub const FRAME_MS: u32 = 1000 / FRAMES_PER_SECOND;
+pub const FRAME_MS: u64 = 1000 / FRAMES_PER_SECOND as u64;
 
 const FALL_FRAC_PER_FRAME: f32 = FALL_PCT_PER_SECOND / 100.0 / FRAMES_PER_SECOND as f32;
 
