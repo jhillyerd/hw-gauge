@@ -12,12 +12,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayvec"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8da52d66c7071e2e3fa2a1e5c6d088fec47b593032b254f5e980de8ea54454d6"
+
+[[package]]
 name = "atomic-polyfill"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c041a8d9751a520ee19656232a18971f18946a7900f1520ee4400002244dd89"
 dependencies = [
- "critical-section",
+ "critical-section 0.2.7",
 ]
 
 [[package]]
@@ -64,17 +70,6 @@ name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
-
-[[package]]
-name = "bxcan"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b13b4b2ea9ab2ba924063ebb86ad895cb79f4a79bf90f27949eb20c335b30f9"
-dependencies = [
- "bitflags",
- "nb 1.0.0",
- "vcell",
-]
 
 [[package]]
 name = "byte-slice-cast"
@@ -161,6 +156,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc-any"
+version = "2.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "774646b687f63643eb0f4bf13dc263cb581c8c9e57973b6ddf78bda3994d88df"
+dependencies = [
+ "debug-helper",
+]
+
+[[package]]
 name = "critical-section"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -171,6 +175,18 @@ dependencies = [
  "cortex-m",
  "riscv",
 ]
+
+[[package]]
+name = "critical-section"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6548a0ad5d2549e111e1f6a11a6c2e2d00ce6a3dafe22948d67c2b443f775e52"
+
+[[package]]
+name = "debug-helper"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f578e8e2c440e7297e008bb5486a3a8a194775224bbc23729b0dbdfaeebf162e"
 
 [[package]]
 name = "defmt"
@@ -207,7 +223,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d2cbbbd58847d508d97629b32cd9730a2d28532f71e219714614406029f18b1"
 dependencies = [
- "critical-section",
+ "critical-section 0.2.7",
  "defmt",
 ]
 
@@ -216,16 +232,6 @@ name = "display-interface"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7517c040926d7b02b111884aa089177db80878533127f7c1b480d852c5fb4112"
-
-[[package]]
-name = "display-interface-i2c"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4895cd4e54e5536ef370d7f1eec787aad8275dd8ad15815aebfa71dd847b4ebf"
-dependencies = [
- "display-interface",
- "embedded-hal",
-]
 
 [[package]]
 name = "display-interface-spi"
@@ -239,13 +245,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "embedded-dma"
-version = "0.2.0"
+name = "either"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "994f7e5b5cb23521c22304927195f236813053eb9c065dd2226a32ba64695446"
-dependencies = [
- "stable_deref_trait",
-]
+checksum = "90e5c1c8368803113bf0c9584fc495a58b86dc8a29edbf8fe877d21d9507e797"
 
 [[package]]
 name = "embedded-graphics"
@@ -299,32 +302,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "fugit-timer"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9607bfc4c388f9d629704f56ede4a007546cad417b3bcd6fc7c87dc7edce04a"
-dependencies = [
- "fugit",
- "nb 1.0.0",
-]
-
-[[package]]
 name = "gcd"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f37978dab2ca789938a83b2f8bc1ef32db6633af9051a6cd409eff72cbaaa79a"
 dependencies = [
  "paste",
-]
-
-[[package]]
-name = "generic-array"
-version = "0.14.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bff49e947297f3312447abdca79f45f4738097cc82b06e72054d2223f601f1b9"
-dependencies = [
- "typenum",
- "version_check",
 ]
 
 [[package]]
@@ -358,25 +341,27 @@ dependencies = [
 
 [[package]]
 name = "hw-gauge-firmware"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rtic",
  "defmt",
  "defmt-rtt",
+ "display-interface",
+ "display-interface-spi",
  "embedded-graphics",
  "embedded-hal",
  "fugit",
  "heapless",
+ "mipidsi",
  "mutex-trait",
  "panic-probe",
  "postcard",
+ "rp-pico",
+ "rp2040-monotonic",
  "rtic-core",
  "rtic-monotonic",
  "shared",
- "ssd1306",
- "stm32-usbd",
- "stm32f1xx-hal",
  "usb-device",
  "usbd-serial",
 ]
@@ -389,6 +374,15 @@ checksum = "10a35a97730320ffe8e2d410b5d3b69279b98d2c14bdb8b70ea89ecf7888d41e"
 dependencies = [
  "autocfg",
  "hashbrown",
+]
+
+[[package]]
+name = "itertools"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
+dependencies = [
+ "either",
 ]
 
 [[package]]
@@ -418,6 +412,19 @@ name = "micromath"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc4010833aea396656c2f91ee704d51a6f1329ec2ab56ffd00bfd56f7481ea94"
+
+[[package]]
+name = "mipidsi"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d01689378a99f5956d9840ed831fb48a8fb544fd1234593d7eb236147634642d"
+dependencies = [
+ "display-interface",
+ "embedded-graphics-core",
+ "embedded-hal",
+ "heapless",
+ "nb 1.0.0",
+]
 
 [[package]]
 name = "mutex-trait"
@@ -450,6 +457,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "num_enum"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf5395665662ef45796a4ff5486c5d41d29e0c09640af4c5f17fd94ee2c119c9"
+dependencies = [
+ "num_enum_derive",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b0498641e53dd6ac1a4f22547548caa6864cc4933784319cd1775271c5a46ce"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "panic-probe"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -464,6 +491,17 @@ name = "paste"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1de2e551fb905ac83f73f7aedf2f0cb4a0da7e35efa24a202a936269f1f18e1"
+
+[[package]]
+name = "pio"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fd642eada42517e6589cd7f5e830630324aec628fb4aa719000f8801e40c0a2"
+dependencies = [
+ "arrayvec",
+ "num_enum",
+ "paste",
+]
 
 [[package]]
 name = "postcard"
@@ -519,6 +557,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_core"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+
+[[package]]
 name = "regex"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -554,6 +598,87 @@ checksum = "88aa938cda42a0cf62a20cfe8d139ff1af20c2e681212b5b34adb5a58333f222"
 dependencies = [
  "lazy_static",
  "regex",
+]
+
+[[package]]
+name = "rp-pico"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15eec35d047d5ac3f9bc12686687e404f587acce23f76b6af04c0e0ce270a0b5"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "fugit",
+ "rp2040-boot2",
+ "rp2040-hal",
+ "usb-device",
+]
+
+[[package]]
+name = "rp2040-boot2"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c773ec49b836077aa144b58dc7654a243e1eecdb6cf0d25361ae7c7600fabd8"
+dependencies = [
+ "crc-any",
+]
+
+[[package]]
+name = "rp2040-hal"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f919d0d3c64fd9c7642dac2267a55d6aa1667e45329e8605a3858727acc7711"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section 0.2.7",
+ "critical-section 1.1.1",
+ "embedded-hal",
+ "fugit",
+ "itertools",
+ "nb 1.0.0",
+ "paste",
+ "pio",
+ "rand_core",
+ "rp2040-hal-macros",
+ "rp2040-pac",
+ "usb-device",
+ "vcell",
+ "void",
+]
+
+[[package]]
+name = "rp2040-hal-macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86479063e497efe1ae81995ef9071f54fd1c7427e04d6c5b84cde545ff672a5e"
+dependencies = [
+ "cortex-m-rt",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "rp2040-monotonic"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b7b4e72b913ad6c28bf3239d18c26fd2adc83b01dfd4ca1d3cf73d298d19c1a"
+dependencies = [
+ "fugit",
+ "rp2040-pac",
+ "rtic-monotonic",
+]
+
+[[package]]
+name = "rp2040-pac"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13a6106d5db01c7171a39c1f7696780912db9b42fe7ac722db60069c8904ea7c"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "vcell",
 ]
 
 [[package]]
@@ -663,67 +788,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ssd1306"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32dfc9d17ad1c006fbcd9150b92573a3801b079de234760e545f60981a56f691"
-dependencies = [
- "display-interface",
- "display-interface-i2c",
- "display-interface-spi",
- "embedded-graphics-core",
- "embedded-hal",
- "generic-array",
-]
-
-[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "stm32-usbd"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6c94998f166d66b210a164648a0b7866428d8f1e0740bf8a4c5edd89d4750c1"
-dependencies = [
- "cortex-m",
- "usb-device",
- "vcell",
-]
-
-[[package]]
-name = "stm32f1"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78d0d11d776bc6f165c68c67468826b33b3eabd04c3c319df5e8476dd580002d"
-dependencies = [
- "bare-metal 1.0.0",
- "cortex-m",
- "cortex-m-rt",
- "vcell",
-]
-
-[[package]]
-name = "stm32f1xx-hal"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1232c561785bdbc59a5ab2b28c5c9429cb9ee9b04687133e59d1a34a39426943"
-dependencies = [
- "bitflags",
- "bxcan",
- "cortex-m",
- "cortex-m-rt",
- "embedded-dma",
- "embedded-hal",
- "fugit",
- "fugit-timer",
- "nb 1.0.0",
- "stm32-usbd",
- "stm32f1",
- "void",
-]
 
 [[package]]
 name = "syn"
@@ -735,12 +803,6 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
-
-[[package]]
-name = "typenum"
-version = "1.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
 
 [[package]]
 name = "unicode-ident"
