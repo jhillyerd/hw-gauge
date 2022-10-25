@@ -12,7 +12,7 @@ mod perf;
 #[rtic::app(
     device = rp_pico::pac,
     peripherals = true,
-    dispatchers = [ PIO0_IRQ_0, PIO0_IRQ_1, PIO1_IRQ_0, PIO1_IRQ_1 ],
+    dispatchers = [ XIP_IRQ, I2C0_IRQ, I2C1_IRQ ],
 )]
 mod app {
     use crate::{
@@ -20,7 +20,7 @@ mod app {
         perf::{self, FramesDeque},
     };
     use cortex_m::asm;
-    use defmt::{debug, error, info, warn};
+    use defmt::{debug, error, info, unwrap, warn};
     use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
     use embedded_hal::{digital::v2::OutputPin, spi::MODE_0};
     use fugit::{ExtU64, RateExtU32};
@@ -95,7 +95,7 @@ mod app {
         // Setup clock & timer.
         let mut resets = ctx.device.RESETS;
         let mut watchdog = Watchdog::new(ctx.device.WATCHDOG);
-        let clocks = hal::clocks::init_clocks_and_plls(
+        let clocks = unwrap!(hal::clocks::init_clocks_and_plls(
             XOSC_CRYSTAL_FREQ,
             ctx.device.XOSC,
             ctx.device.CLOCKS,
@@ -104,8 +104,7 @@ mod app {
             &mut resets,
             &mut watchdog,
         )
-        .ok()
-        .unwrap();
+        .ok());
 
         let mono = SysMono::new(ctx.device.TIMER);
         let mut delay =
@@ -120,7 +119,7 @@ mod app {
             &mut resets,
         );
         let mut led: ActivityLED = pins.gpio25.into_push_pull_output();
-        led.set_low().unwrap();
+        unwrap!(led.set_low());
 
         // Setup USB bus and serial port device.
         *ctx.local.usb_bus = Some(UsbBusAllocator::new(usb::UsbBus::new(
@@ -165,7 +164,7 @@ mod app {
 
         // Start tasks.
         pulse_led::spawn().unwrap();
-        show_perf::spawn().unwrap();
+        // show_perf::spawn().unwrap();
 
         info!("RTIC init completed");
 
@@ -197,10 +196,10 @@ mod app {
 
         pulse_led.lock(|pulse_led| {
             if *pulse_led {
-                led.set_low().ok();
+                led.set_high().unwrap();
                 *pulse_led = false;
             } else {
-                led.set_high().ok();
+                led.set_low().unwrap();
             }
         });
 
