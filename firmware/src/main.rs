@@ -35,9 +35,6 @@ mod app {
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
 
-    #[monotonic(binds = TIMER_IRQ_0, default = true)]
-    type SysMono = rp2040_monotonic::Rp2040Monotonic;
-
     type ScopePin = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio21, hal::gpio::PushPullOutput>;
 
     #[shared]
@@ -63,12 +60,6 @@ mod app {
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         info!("RTIC init started");
 
-        // Soft-reset does not release the hardware spinlocks.
-        // Release them now to avoid a deadlock after debug or watchdog reset.
-        unsafe {
-            hal::sio::spinlock_reset();
-        }
-
         // Setup clock & timer.
         let mut resets = ctx.device.RESETS;
         let mut watchdog = Watchdog::new(ctx.device.WATCHDOG);
@@ -83,7 +74,7 @@ mod app {
         )
         .ok());
 
-        let mono = SysMono::new(ctx.device.TIMER);
+        // let mono = SysMono::new(ctx.device.TIMER);
         let mut delay =
             cortex_m::delay::Delay::new(ctx.core.SYST, clocks.system_clock.freq().to_Hz());
 
@@ -149,7 +140,7 @@ mod app {
                 prev_perf: None,
             },
             Local { scope },
-            init::Monotonics(mono),
+            init::Monotonics(),
         )
     }
 
