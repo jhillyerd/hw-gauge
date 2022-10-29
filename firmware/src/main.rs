@@ -5,7 +5,6 @@ use defmt::error;
 use defmt_rtt as _;
 use panic_probe as _;
 
-mod gfx;
 mod io;
 mod perf;
 
@@ -38,9 +37,6 @@ mod app {
 
     #[monotonic(binds = TIMER_IRQ_0, default = true)]
     type SysMono = rp2040_monotonic::Rp2040Monotonic;
-
-    // LED blinks on USB activity.
-    type ActivityLED = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>;
 
     type ScopePin = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio21, hal::gpio::PushPullOutput>;
 
@@ -99,8 +95,6 @@ mod app {
             sio.gpio_bank0,
             &mut resets,
         );
-        let mut led: ActivityLED = pins.gpio25.into_push_pull_output();
-        unwrap!(led.set_low());
 
         let scope: ScopePin = pins.gpio21.into_push_pull_output();
 
