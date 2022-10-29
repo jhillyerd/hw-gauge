@@ -74,9 +74,6 @@ mod app {
 
         // Previously received perf data message.
         prev_perf: Option<PerfData>,
-
-        // Spawn handle for no data received timeouts.
-        timeout_handle: Option<no_data_timeout::SpawnHandle>,
     }
 
     #[local]
@@ -168,7 +165,7 @@ mod app {
         display.clear(Rgb565::BLACK).expect("display clears");
 
         // Start tasks.
-        pulse_led::spawn().unwrap();
+        // pulse_led::spawn().unwrap();
         // show_perf::spawn().unwrap();
 
         info!("RTIC init completed");
@@ -180,7 +177,6 @@ mod app {
                 display,
                 pulse_led: false,
                 prev_perf: None,
-                timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
             },
             Local { led, scope },
             init::Monotonics(mono),
@@ -197,24 +193,6 @@ mod app {
         }
     }
 
-    #[task(shared = [pulse_led], local = [led])]
-    fn pulse_led(ctx: pulse_led::Context) {
-        let mut pulse_led = ctx.shared.pulse_led;
-        let led = ctx.local.led;
-
-        pulse_led.lock(|pulse_led| {
-            if *pulse_led {
-                led.set_high().unwrap();
-                *pulse_led = false;
-            } else {
-                led.set_low().unwrap();
-            }
-        });
-
-        // Clear LED after a delay.
-        pulse_led::spawn_after(STATUS_LED_MS.millis()).unwrap();
-    }
-
     #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led], local = [scope])]
     fn usb_event(ctx: usb_event::Context) {
         ctx.local.scope.set_high().ok();
@@ -228,20 +206,14 @@ mod app {
         ctx.local.scope.set_low().ok();
     }
 
-    #[task(priority = 3, shared = [timeout_handle])]
-    fn handle_packet(mut ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
+    #[task(priority = 3)]
+    fn handle_packet(_ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
                 debug!("Rx message: {:?}", msg);
                 match msg {
                     message::FromHost::ShowPerf(perf_data) => {
-                        // Reschedule pending no-data timeout.
-                        ctx.shared.timeout_handle.lock(|timeout_opt| {
-                            timeout_opt.take().map(|timeout| timeout.cancel().ok());
-                            *timeout_opt = no_data_timeout::spawn_after(2.secs(), false).ok();
-                        });
-
                         handle_perf::spawn(perf_data).ok();
                     }
                     _ => {}
@@ -268,54 +240,6 @@ mod app {
                 *prev_perf = perf::update_state(prev_value, new_perf, frames);
             },
         );
-    }
-
-    /// Immediately displays provided PerfData.
-    #[task(shared = [display, frames])]
-    fn show_perf(ctx: show_perf::Context) {
-        let show_perf::SharedResources { display, frames } = ctx.shared;
-
-        if let Err(_) = show_perf::spawn_at(monotonics::now() + perf::FRAME_MS.millis()) {
-            error!("Failed to request show_perf::spawn_at");
-            asm::bkpt();
-        }
-
-        // Pop a frame off the front of the frame queue and display it.
-        (display, frames).lock(|display: &mut Display, frames: &mut FramesDeque| {
-            if let Some(frame) = frames.pop_front() {
-                gfx::draw_perf(display, &frame).unwrap();
-                // if let Err(_) = display.flush() {
-                //     error!("Failed to flush display");
-                //     #[cfg(debug_assertions)]
-                //     asm::bkpt();
-                // }
-            }
-        });
-    }
-
-    #[task(priority = 2, shared = [display, timeout_handle])]
-    fn no_data_timeout(ctx: no_data_timeout::Context, clear_screen: bool) {
-        let no_data_timeout::SharedResources {
-            mut display,
-            mut timeout_handle,
-        } = ctx.shared;
-
-        display.lock(|display| {
-            if clear_screen {
-                warn!("No perf data received in {} seconds", BLANK_SCREEN_SECS);
-                display.clear(Rgb565::BLACK).ok();
-            } else {
-                info!("No perf data received recently");
-                gfx::draw_message(display, "No data received").ok();
-
-                // Schedule clear screen timeout.
-                timeout_handle.lock(|timeout_opt| {
-                    timeout_opt.take().map(|timeout| timeout.cancel().ok());
-                    *timeout_opt =
-                        no_data_timeout::spawn_after(BLANK_SCREEN_SECS.secs(), true).ok();
-                });
-            }
-        });
     }
 }
 
