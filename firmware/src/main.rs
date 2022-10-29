@@ -12,7 +12,7 @@ mod perf;
 #[rtic::app(
     device = rp_pico::pac,
     peripherals = true,
-    dispatchers = [ XIP_IRQ, I2C0_IRQ, I2C1_IRQ ],
+    dispatchers = [ PIO0_IRQ_0, PIO0_IRQ_1, PIO1_IRQ_0 ],
 )]
 mod app {
     use crate::{
