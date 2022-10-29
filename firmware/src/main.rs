@@ -22,10 +22,13 @@ mod app {
     use cortex_m::asm;
     use defmt::{debug, error, info, unwrap, warn};
     use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
-    use embedded_hal::{digital::v2::OutputPin, spi::MODE_0};
+    use embedded_hal::{digital::v2::OutputPin, spi};
     use fugit::{ExtU64, RateExtU32};
     use postcard;
-    use rp_pico::hal::{self, clocks::Clock, usb, watchdog::Watchdog};
+    use rp_pico::{
+        hal::{self, clocks::Clock, usb, watchdog::Watchdog},
+        pac::USBCTRL_REGS,
+    };
     use shared::{message, message::PerfData};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
@@ -47,6 +50,8 @@ mod app {
 
     // LED blinks on USB activity.
     type ActivityLED = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>;
+
+    type ScopePin = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio21, hal::gpio::PushPullOutput>;
 
     // ST7789V IPS screen, aka T-Display.
     type Display = mipidsi::Display<
@@ -80,17 +85,18 @@ mod app {
     #[local]
     struct Local {
         led: crate::app::ActivityLED,
+        scope: crate::app::ScopePin,
     }
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBus>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
-        info!("RTIC init started");
-
         // Soft-reset does not release the hardware spinlocks.
         // Release them now to avoid a deadlock after debug or watchdog reset.
         unsafe {
             hal::sio::spinlock_reset();
         }
+
+        info!("RTIC init started");
 
         // Setup clock & timer.
         let mut resets = ctx.device.RESETS;
@@ -120,6 +126,9 @@ mod app {
         );
         let mut led: ActivityLED = pins.gpio25.into_push_pull_output();
         unwrap!(led.set_low());
+        pins.gpio23.into_push_pull_output().set_high().unwrap();
+
+        let scope: ScopePin = pins.gpio21.into_push_pull_output();
 
         // Setup USB bus and serial port device.
         *ctx.local.usb_bus = Some(UsbBusAllocator::new(usb::UsbBus::new(
@@ -140,15 +149,20 @@ mod app {
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
 
-        // Setup SPI for onboard T-Display.
-        // TODO confirm correct spi pins in use?
-        let _ = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
-        let _ = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
+        // Setup display power & backlight.
+        let mut pwr_pin = pins.gpio22.into_push_pull_output();
+        let mut bl_pin = pins.gpio4.into_push_pull_output();
+        pwr_pin.set_high().unwrap();
+        bl_pin.set_high().unwrap();
+
+        // Setup SPI bus for onboard "T-Display".
+        let _spi_sclk = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
+        let _spi_mosi = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
         let spi = hal::Spi::<_, _, 8>::new(ctx.device.SPI0).init(
             &mut resets,
-            125.MHz(),
-            16.MHz(),
-            &MODE_0,
+            clocks.peripheral_clock.freq(),
+            15.MHz(), // 66ns minimum clock cycle time for ST7789V.
+            &spi::MODE_0,
         );
 
         // Setup display.
@@ -156,11 +170,11 @@ mod app {
         let dc_pin = pins.gpio1.into_push_pull_output();
         let rst_pin = pins.gpio0.into_push_pull_output();
         let display_if = display_interface_spi::SPIInterface::new(spi, dc_pin, cs_pin);
-        let mut display = mipidsi::builder::Builder::st7789(display_if)
-            .with_display_size(240, 135)
+        let mut display = mipidsi::builder::Builder::st7789_pico1(display_if)
+            .with_orientation(mipidsi::options::Orientation::Landscape(true))
             .init(&mut delay, Some(rst_pin))
             .expect("display initializes");
-        display.clear(Rgb565::BLACK).expect("display clears");
+        display.clear(Rgb565::GREEN).expect("display clears");
 
         // Start tasks.
         pulse_led::spawn().unwrap();
@@ -177,7 +191,7 @@ mod app {
                 prev_perf: None,
                 timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
             },
-            Local { led },
+            Local { led, scope },
             init::Monotonics(mono),
         )
     }
@@ -185,7 +199,10 @@ mod app {
     #[idle()]
     fn idle(_ctx: idle::Context) -> ! {
         loop {
-            cortex_m::asm::nop();
+            for _ in 0..10_000_000 {
+                cortex_m::asm::nop();
+            }
+            debug!("idle 10m");
         }
     }
 
@@ -207,13 +224,20 @@ mod app {
         pulse_led::spawn_after(STATUS_LED_MS.millis()).unwrap();
     }
 
-    #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led])]
+    #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led], local = [scope])]
     fn usb_event(ctx: usb_event::Context) {
+        ctx.local.scope.set_high().ok();
+
+        let ints = unsafe { (*USBCTRL_REGS::ptr()).ints.read().bits() };
+        debug!("USB INTS reg: {}", ints);
+
         let usb_event::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
             crate::handle_usb_event(serial);
             *pulse_led = true;
         });
+
+        ctx.local.scope.set_low().ok();
     }
 
     #[task(priority = 3, shared = [timeout_handle])]
