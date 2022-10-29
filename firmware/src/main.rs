@@ -16,14 +16,14 @@ mod perf;
 )]
 mod app {
     use crate::{
-        gfx, io,
+        io,
         perf::{self, FramesDeque},
     };
     use cortex_m::asm;
-    use defmt::{debug, error, info, unwrap, warn};
+    use defmt::{debug, error, info, unwrap};
     use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
     use embedded_hal::{digital::v2::OutputPin, spi::MODE_0};
-    use fugit::{ExtU64, RateExtU32};
+    use fugit::RateExtU32;
     use postcard;
     use rp_pico::hal::{self, clocks::Clock, usb, watchdog::Watchdog};
     use shared::{message, message::PerfData};
@@ -31,12 +31,6 @@ mod app {
 
     // Frequency of the board crystal.
     const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
-
-    // Duration to illuninate status LED upon data RX.
-    const STATUS_LED_MS: u64 = 50;
-
-    // Delay from no data received to blanking the screen.
-    const BLANK_SCREEN_SECS: u64 = 30;
 
     // Periods are measured in system clock cycles; smaller is more frequent.
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
@@ -50,24 +44,12 @@ mod app {
 
     type ScopePin = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio21, hal::gpio::PushPullOutput>;
 
-    // ST7789V IPS screen, aka T-Display.
-    type Display = mipidsi::Display<
-        display_interface_spi::SPIInterface<
-            hal::Spi<hal::spi::Enabled, hal::pac::SPI0, 8>,
-            hal::gpio::Pin<hal::gpio::pin::bank0::Gpio1, hal::gpio::Output<hal::gpio::PushPull>>,
-            hal::gpio::Pin<hal::gpio::pin::bank0::Gpio5, hal::gpio::Output<hal::gpio::PushPull>>,
-        >,
-        mipidsi::models::ST7789,
-        hal::gpio::Pin<hal::gpio::pin::bank0::Gpio0, hal::gpio::Output<hal::gpio::PushPull>>,
-    >;
-
     #[shared]
     struct Shared {
         // Queue of perf data frames to display.
         frames: FramesDeque,
 
         serial: io::Serial,
-        display: Display,
 
         // Blinks ActivityLED briefly when set true.
         pulse_led: bool,
@@ -78,7 +60,6 @@ mod app {
 
     #[local]
     struct Local {
-        led: crate::app::ActivityLED,
         scope: crate::app::ScopePin,
     }
 
@@ -164,21 +145,16 @@ mod app {
             .expect("display initializes");
         display.clear(Rgb565::BLACK).expect("display clears");
 
-        // Start tasks.
-        // pulse_led::spawn().unwrap();
-        // show_perf::spawn().unwrap();
-
         info!("RTIC init completed");
 
         (
             Shared {
                 frames: FramesDeque::new(),
                 serial: io::Serial::new(usb_dev, port),
-                display,
                 pulse_led: false,
                 prev_perf: None,
             },
-            Local { led, scope },
+            Local { scope },
             init::Monotonics(mono),
         )
     }
