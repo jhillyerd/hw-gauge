@@ -21,10 +21,10 @@ mod app {
     use cortex_m::asm;
     use defmt::{debug, error, info, unwrap};
     use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
-    use embedded_hal::{digital::v2::OutputPin, spi::MODE_0};
+    use embedded_hal::{digital::v2::OutputPin, spi};
     use fugit::RateExtU32;
     use postcard;
-    use rp_pico::hal::{self, clocks::Clock, usb, watchdog::Watchdog};
+    use rp_pico::{hal::{self, clocks::Clock, usb, watchdog::Watchdog}, pac::{pwm::ints::INTS_SPEC, USBCTRL_REGS}};
     use shared::{message, message::PerfData};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
@@ -58,8 +58,6 @@ mod app {
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBus>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
-        info!("RTIC init started");
-
         // Setup clock & timer.
         let mut resets = ctx.device.RESETS;
         let mut watchdog = Watchdog::new(ctx.device.WATCHDOG);
@@ -73,6 +71,8 @@ mod app {
             &mut watchdog,
         )
         .ok());
+
+        info!("RTIC init started");
 
         // let mono = SysMono::new(ctx.device.TIMER);
         let mut delay =
@@ -107,16 +107,17 @@ mod app {
         .serial_number("TEST")
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
+        // usb setup delay?
+        // delay.delay_ms(10);
 
         // Setup SPI for onboard T-Display.
-        // TODO confirm correct spi pins in use?
-        let _ = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
-        let _ = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
+        let _spi_sclk = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
+        let _spi_mosi = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
         let spi = hal::Spi::<_, _, 8>::new(ctx.device.SPI0).init(
             &mut resets,
-            125.MHz(),
-            16.MHz(),
-            &MODE_0,
+            clocks.peripheral_clock.freq(),
+            15.MHz(), // 66-67 ns cycle time for ST7789V.
+            &spi::MODE_0,
         );
 
         // Setup display.
@@ -157,6 +158,9 @@ mod app {
     #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led], local = [scope])]
     fn usb_event(ctx: usb_event::Context) {
         ctx.local.scope.set_high().ok();
+
+        let ints = unsafe { (*USBCTRL_REGS::ptr()).ints.read().bits() };
+        debug!("USBCTRL_IRQ ints: {}", ints);
 
         let usb_event::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
