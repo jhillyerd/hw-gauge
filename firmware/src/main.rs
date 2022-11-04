@@ -9,8 +9,15 @@ mod gfx;
 mod io;
 mod perf;
 
+/// The linker will place this boot block at the start of our program image. We
+/// need this to help the ROM bootloader get our code up and running.
+#[link_section = ".boot2"]
+#[no_mangle]
+#[used]
+pub static BOOT2_FIRMWARE: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
+
 #[rtic::app(
-    device = rp_pico::pac,
+    device = rp2040_hal::pac,
     peripherals = true,
     dispatchers = [ PIO0_IRQ_0, PIO0_IRQ_1, PIO1_IRQ_0 ],
 )]
@@ -25,10 +32,7 @@ mod app {
     use embedded_hal::{digital::v2::OutputPin, spi};
     use fugit::{ExtU64, RateExtU32};
     use postcard;
-    use rp_pico::{
-        hal::{self, clocks::Clock, usb, watchdog::Watchdog},
-        pac::USBCTRL_REGS,
-    };
+    use rp2040_hal::{self as hal, clocks::Clock, usb, watchdog::Watchdog, pac::USBCTRL_REGS};
     use shared::{message, message::PerfData};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 

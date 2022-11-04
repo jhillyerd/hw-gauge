@@ -1,4 +1,4 @@
-use rp_pico::hal::usb;
+use rp2040_hal::usb;
 use usb_device::prelude::*;
 
 pub const BUF_BYTES: usize = 64;
