@@ -108,30 +108,30 @@ mod app {
         .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
         // usb setup delay?
-        // delay.delay_ms(10);
+        delay.delay_ms(400);
 
-        // Setup SPI for onboard T-Display.
-        let _spi_sclk = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
-        let _spi_mosi = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
-        let spi = hal::Spi::<_, _, 8>::new(ctx.device.SPI0).init(
-            &mut resets,
-            clocks.peripheral_clock.freq(),
-            15.MHz(), // 66-67 ns cycle time for ST7789V.
-            &spi::MODE_0,
-        );
+        // // Setup SPI for onboard T-Display.
+        // let _spi_sclk = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
+        // let _spi_mosi = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
+        // let spi = hal::Spi::<_, _, 8>::new(ctx.device.SPI0).init(
+        //     &mut resets,
+        //     clocks.peripheral_clock.freq(),
+        //     15.MHz(), // 66-67 ns cycle time for ST7789V.
+        //     &spi::MODE_0,
+        // );
 
-        // Setup display.
-        let cs_pin = pins.gpio5.into_push_pull_output();
-        let dc_pin = pins.gpio1.into_push_pull_output();
-        let rst_pin = pins.gpio0.into_push_pull_output();
-        let display_if = display_interface_spi::SPIInterface::new(spi, dc_pin, cs_pin);
-        let mut display = mipidsi::builder::Builder::st7789(display_if)
-            .with_display_size(240, 135)
-            .init(&mut delay, Some(rst_pin))
-            .expect("display initializes");
-        display.clear(Rgb565::BLACK).expect("display clears");
+        // // Setup display.
+        // let cs_pin = pins.gpio5.into_push_pull_output();
+        // let dc_pin = pins.gpio1.into_push_pull_output();
+        // let rst_pin = pins.gpio0.into_push_pull_output();
+        // let display_if = display_interface_spi::SPIInterface::new(spi, dc_pin, cs_pin);
+        // let mut display = mipidsi::builder::Builder::st7789(display_if)
+        //     .with_display_size(240, 135)
+        //     .init(&mut delay, Some(rst_pin))
+        //     .expect("display initializes");
+        // display.clear(Rgb565::BLACK).expect("display clears");
 
-        info!("RTIC init completed");
+        // info!("RTIC init completed");
 
         (
             Shared {
@@ -159,8 +159,8 @@ mod app {
     fn usb_event(ctx: usb_event::Context) {
         ctx.local.scope.set_high().ok();
 
-        let ints = unsafe { (*USBCTRL_REGS::ptr()).ints.read().bits() };
-        debug!("USBCTRL_IRQ ints: {}", ints);
+        // let ints = unsafe { (*USBCTRL_REGS::ptr()).ints.read().bits() };
+        // debug!("USBCTRL_IRQ ints: {}", ints);
 
         let usb_event::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
