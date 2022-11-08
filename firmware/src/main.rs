@@ -134,11 +134,6 @@ mod app {
 
         let scope: ScopePin = pins.gpio21.into_push_pull_output();
 
-        // Setup display power & backlight.
-        unwrap!(pins.gpio22.into_push_pull_output().set_high()); // Power.
-        let mut bl_pin = pins.gpio4.into_push_pull_output();
-        unwrap!(bl_pin.set_high());
-
         // Setup SPI bus for onboard "T-Display".
         let _spi_sclk = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
         let _spi_mosi = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
@@ -146,10 +141,14 @@ mod app {
             &mut resets,
             clocks.peripheral_clock.freq(),
             15.MHz(), // 66ns minimum clock cycle time for ST7789V.
-            &spi::MODE_0,
+            &spi::MODE_3,
         );
 
-        // Setup display.
+        // Setup T-Display.
+        unwrap!(pins.gpio22.into_push_pull_output().set_high()); // Power on display.
+        let mut bl_pin = pins.gpio4.into_push_pull_output();
+        unwrap!(bl_pin.set_low()); // Backlight off until we've cleared the display.
+
         let cs_pin = pins.gpio5.into_push_pull_output();
         let dc_pin = pins.gpio1.into_push_pull_output();
         let rst_pin = pins.gpio0.into_push_pull_output();
@@ -158,7 +157,9 @@ mod app {
             .with_orientation(mipidsi::options::Orientation::Landscape(true))
             .init(&mut delay, Some(rst_pin))
             .expect("display initializes");
-        display.clear(Rgb565::GREEN).expect("display clears");
+
+        display.clear(Rgb565::BLACK).expect("display clears");
+        unwrap!(bl_pin.set_high());
 
         // Setup USB bus and serial port device.
         *ctx.local.usb_bus = Some(UsbBusAllocator::new(usb::UsbBus::new(
@@ -336,7 +337,6 @@ fn handle_usb_event(serial: &mut io::Serial) {
     let mut result = [0u8; io::BUF_BYTES];
     let len = serial.read_packet(&mut result[..]).unwrap();
     if len > 0 {
-        defmt::debug!("non-empty packet recvd");
         if let Err(_) = app::handle_packet::spawn(result) {
             error!("Failed to spawn handle_packet, likely still handling last packet")
         }
