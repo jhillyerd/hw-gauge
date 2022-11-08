@@ -32,14 +32,14 @@ mod app {
     use embedded_hal::{digital::v2::OutputPin, spi};
     use fugit::{ExtU64, RateExtU32};
     use postcard;
-    use rp2040_hal::{self as hal, clocks::Clock, usb, watchdog::Watchdog, pac::USBCTRL_REGS};
+    use rp2040_hal::{self as hal, clocks::Clock, usb, watchdog::Watchdog};
     use shared::{message, message::PerfData};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
     // Frequency of the board crystal.
     const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
 
-    // Duration to illuninate status LED upon data RX.
+    // Duration to illuminate status LED upon data RX.
     const STATUS_LED_MS: u64 = 50;
 
     // Delay from no data received to blanking the screen.
@@ -134,30 +134,10 @@ mod app {
 
         let scope: ScopePin = pins.gpio21.into_push_pull_output();
 
-        // Setup USB bus and serial port device.
-        *ctx.local.usb_bus = Some(UsbBusAllocator::new(usb::UsbBus::new(
-            ctx.device.USBCTRL_REGS,
-            ctx.device.USBCTRL_DPRAM,
-            clocks.usb_clock,
-            true,
-            &mut resets,
-        )));
-        let port = usbd_serial::SerialPort::new(ctx.local.usb_bus.as_ref().unwrap());
-        let usb_dev = UsbDeviceBuilder::new(
-            ctx.local.usb_bus.as_ref().unwrap(),
-            UsbVidPid(USB_VENDOR_ID, USB_PRODUCT_ID),
-        )
-        .manufacturer("JHillyerd")
-        .product("System monitor")
-        .serial_number("TEST")
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
-
         // Setup display power & backlight.
-        let mut pwr_pin = pins.gpio22.into_push_pull_output();
+        unwrap!(pins.gpio22.into_push_pull_output().set_high()); // Power.
         let mut bl_pin = pins.gpio4.into_push_pull_output();
-        pwr_pin.set_high().unwrap();
-        bl_pin.set_high().unwrap();
+        unwrap!(bl_pin.set_high());
 
         // Setup SPI bus for onboard "T-Display".
         let _spi_sclk = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
@@ -180,9 +160,28 @@ mod app {
             .expect("display initializes");
         display.clear(Rgb565::GREEN).expect("display clears");
 
+        // Setup USB bus and serial port device.
+        *ctx.local.usb_bus = Some(UsbBusAllocator::new(usb::UsbBus::new(
+            ctx.device.USBCTRL_REGS,
+            ctx.device.USBCTRL_DPRAM,
+            clocks.usb_clock,
+            true,
+            &mut resets,
+        )));
+        let port = usbd_serial::SerialPort::new(ctx.local.usb_bus.as_ref().unwrap());
+        let usb_dev = UsbDeviceBuilder::new(
+            ctx.local.usb_bus.as_ref().unwrap(),
+            UsbVidPid(USB_VENDOR_ID, USB_PRODUCT_ID),
+        )
+        .manufacturer("JHillyerd")
+        .product("System monitor")
+        .serial_number("TEST")
+        .device_class(usbd_serial::USB_CLASS_CDC)
+        .build();
+
         // Start tasks.
-        pulse_led::spawn().unwrap();
-        // show_perf::spawn().unwrap();
+        unwrap!(pulse_led::spawn());
+        unwrap!(show_perf::spawn());
 
         info!("RTIC init completed");
 
@@ -231,9 +230,6 @@ mod app {
     #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led], local = [scope])]
     fn usb_event(ctx: usb_event::Context) {
         ctx.local.scope.set_high().ok();
-
-        let ints = unsafe { (*USBCTRL_REGS::ptr()).ints.read().bits() };
-        debug!("USB INTS reg: {}", ints);
 
         let usb_event::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
