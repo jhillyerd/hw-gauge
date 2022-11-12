@@ -9,12 +9,12 @@ use heapless::String;
 use shared::message;
 
 const DISP_WIDTH: i32 = 240;
-const DISP_X_PAD: i32 = 1;
-const DISP_Y_PAD: i32 = 1;
+const DISP_X_PAD: i32 = 3;
+const DISP_Y_PAD: i32 = 3;
 const FONT: MonoFont = embedded_graphics::mono_font::ascii::FONT_10X20;
-const LINE_Y_PAD: i32 = 4;
+const LINE_Y_PAD: i32 = 6;
 const BAR_WIDTH: u32 = (DISP_WIDTH - DISP_X_PAD * 2) as u32;
-const BAR_HEIGHT: u32 = 10;
+const BAR_HEIGHT: u32 = 15;
 const BACKGROUND_COLOR: Rgb565 = Rgb565::BLACK;
 const TEXT_COLOR: Rgb565 = Rgb565::WHITE;
 const BAR_COLOR: Rgb565 = Rgb565::WHITE;

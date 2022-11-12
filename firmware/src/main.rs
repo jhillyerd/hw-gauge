@@ -26,9 +26,11 @@ mod app {
         gfx, io,
         perf::{self, FramesDeque},
     };
+    use core::mem::MaybeUninit;
     use cortex_m::asm;
     use defmt::{debug, error, info, unwrap, warn};
     use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
+    use embedded_graphics_framebuf::FrameBuf;
     use embedded_hal::{digital::v2::OutputPin, spi};
     use fugit::{ExtU64, RateExtU32};
     use postcard;
@@ -54,6 +56,8 @@ mod app {
 
     // LED blinks on USB activity.
     type ActivityLED = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>;
+
+    type DisplayBuf = FrameBuf<Rgb565, &'static mut [Rgb565; 240 * 135]>;
 
     // ST7789V IPS screen, aka T-Display.
     type Display = mipidsi::Display<
@@ -87,9 +91,13 @@ mod app {
     #[local]
     struct Local {
         led: crate::app::ActivityLED,
+        frame_buf: crate::app::DisplayBuf,
     }
 
-    #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBus>> = None])]
+    #[init(local = [
+           usb_bus: Option<UsbBusAllocator<usb::UsbBus>> = None,
+           frame_buf_store: MaybeUninit<[Rgb565; 240 * 135]> = MaybeUninit::uninit(),
+    ])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         // Soft-reset does not release the hardware spinlocks.
         // Release them now to avoid a deadlock after debug or watchdog reset.
@@ -128,6 +136,11 @@ mod app {
         let mut led: ActivityLED = pins.gpio25.into_push_pull_output();
         unwrap!(led.set_low());
 
+        // Init frame buffer.
+        let frame_buf_store: &'static mut _ =
+            ctx.local.frame_buf_store.write([Rgb565::BLACK; 240 * 135]);
+        let frame_buf: DisplayBuf = FrameBuf::new(&mut *frame_buf_store, 240, 135);
+
         // Setup SPI bus for onboard "T-Display".
         let _spi_sclk = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
         let _spi_mosi = pins.gpio3.into_mode::<hal::gpio::FunctionSpi>();
@@ -140,6 +153,7 @@ mod app {
 
         // Setup T-Display.
         unwrap!(pins.gpio22.into_push_pull_output().set_high()); // Power on display.
+        // TODO: Investigate PWM for night time.
         let mut bl_pin = pins.gpio4.into_push_pull_output();
         unwrap!(bl_pin.set_low()); // Backlight off until we've cleared the display.
 
@@ -189,7 +203,10 @@ mod app {
                 prev_perf: None,
                 timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
             },
-            Local { led },
+            Local {
+                led,
+                frame_buf,
+            },
             init::Monotonics(mono),
         )
     }
@@ -214,6 +231,7 @@ mod app {
 
     #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led])]
     fn usb_event(ctx: usb_event::Context) {
+        // TODO: schedule 10ms poll to be compliant.
         let usb_event::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
             crate::handle_usb_event(serial);
@@ -264,9 +282,10 @@ mod app {
     }
 
     /// Immediately displays provided PerfData.
-    #[task(shared = [display, frames])]
+    #[task(shared = [display, frames], local = [frame_buf])]
     fn show_perf(ctx: show_perf::Context) {
         let show_perf::SharedResources { display, frames } = ctx.shared;
+        let frame_buf = ctx.local.frame_buf;
 
         if let Err(_) = show_perf::spawn_at(monotonics::now() + perf::FRAME_MS.millis()) {
             error!("Failed to request show_perf::spawn_at");
@@ -276,7 +295,8 @@ mod app {
         // Pop a frame off the front of the frame queue and display it.
         (display, frames).lock(|display: &mut Display, frames: &mut FramesDeque| {
             if let Some(frame) = frames.pop_front() {
-                gfx::draw_perf(display, &frame).unwrap();
+                gfx::draw_perf(frame_buf, &frame).unwrap();
+                display.draw_iter(frame_buf.into_iter()).unwrap();
             }
         });
     }
