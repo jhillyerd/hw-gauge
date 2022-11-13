@@ -17,7 +17,33 @@ const BAR_WIDTH: u32 = (DISP_WIDTH - DISP_X_PAD * 2) as u32;
 const BAR_HEIGHT: u32 = 15;
 const BACKGROUND_COLOR: Rgb565 = Rgb565::BLACK;
 const TEXT_COLOR: Rgb565 = Rgb565::WHITE;
-const BAR_COLOR: Rgb565 = Rgb565::WHITE;
+
+struct ColorScheme {
+    background: Rgb565,
+    cpu_text: Rgb565,
+    cpu_bar_avg: Rgb565,
+    cpu_bar_peak: Rgb565,
+    mem_text: Rgb565,
+    mem_bar: Rgb565,
+}
+
+const DAY_COLORS: ColorScheme = ColorScheme {
+    background: Rgb565::new(24, 48, 24),
+    cpu_text: Rgb565::BLACK,
+    cpu_bar_avg: Rgb565::new(10, 10, 22),
+    cpu_bar_peak: Rgb565::new(15, 30, 28),
+    mem_text: Rgb565::BLACK,
+    mem_bar: Rgb565::new(7, 43, 11),
+};
+
+const NIGHT_COLORS: ColorScheme = ColorScheme {
+    background: Rgb565::BLACK,
+    cpu_text: Rgb565::new(24, 48, 24),
+    cpu_bar_avg: Rgb565::new(10, 10, 22),
+    cpu_bar_peak: Rgb565::new(3, 3, 8),
+    mem_text: Rgb565::new(24, 48, 24),
+    mem_bar: Rgb565::new(0, 30, 3),
+};
 
 // Renders a simple text message, for errors, etc.
 pub fn draw_message<T>(display: &mut T, msg: &str) -> Result<(), T::Error>
@@ -41,31 +67,39 @@ pub fn draw_perf<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::
 where
     T: DrawTarget<Color = Rgb565>,
 {
-    // Invert the display during the day to even out burn-in.
-    let (foreground, background) = if perf.daytime {
-        (BACKGROUND_COLOR, BAR_COLOR)
+    let colors = if perf.daytime {
+        DAY_COLORS
     } else {
-        (BAR_COLOR, BACKGROUND_COLOR)
+        NIGHT_COLORS
     };
 
-    let text_style = MonoTextStyleBuilder::new()
+    let cpu_text_style = MonoTextStyleBuilder::new()
         .font(&FONT)
-        .text_color(foreground)
+        .text_color(colors.cpu_text)
         .build();
 
-    let outline_bar_style = PrimitiveStyleBuilder::new()
-        .stroke_color(foreground)
-        .stroke_width(1)
-        .fill_color(background)
+    let cpu_peak_bar_style = PrimitiveStyleBuilder::new()
+        .fill_color(colors.cpu_bar_peak)
         .build();
 
-    let solid_bar_style = PrimitiveStyleBuilder::new().fill_color(foreground).build();
+    let cpu_avg_bar_style = PrimitiveStyleBuilder::new()
+        .fill_color(colors.cpu_bar_avg)
+        .build();
+
+    let mem_text_style = MonoTextStyleBuilder::new()
+        .font(&FONT)
+        .text_color(colors.mem_text)
+        .build();
+
+    let mem_bar_style = PrimitiveStyleBuilder::new()
+        .fill_color(colors.mem_bar)
+        .build();
 
     // Clear and begin drawing.
-    display.clear(background)?;
+    display.clear(colors.background)?;
 
     // CPU heading.
-    Text::new("CPU", text_point(DISP_X_PAD, 0), text_style).draw(display)?;
+    Text::new("CPU", text_point(DISP_X_PAD, 0), cpu_text_style).draw(display)?;
 
     // Average CPU percent display, right aligned.
     let mut avg = percent_string(perf.all_cores_avg, true);
@@ -73,14 +107,14 @@ where
     Text::new(
         avg.as_str(),
         text_point_right(0, avg.as_str()),
-        text_style,
+        cpu_text_style,
     )
     .draw(display)?;
 
     // Draw longer peak core load bar.
     bar_graph(
         display,
-        outline_bar_style,
+        cpu_peak_bar_style,
         Point::new(DISP_X_PAD, line_y_offset(1)),
         Size::new(BAR_WIDTH, BAR_HEIGHT),
         perf.peak_core_load,
@@ -89,14 +123,14 @@ where
     // Draw shorter, overlapping all cores load bar.
     bar_graph(
         display,
-        solid_bar_style,
+        cpu_avg_bar_style,
         Point::new(DISP_X_PAD, line_y_offset(1)),
         Size::new(BAR_WIDTH, BAR_HEIGHT),
         perf.all_cores_load,
     )?;
 
     // RAM heading.
-    Text::new("RAM", text_point(DISP_X_PAD, 2), text_style).draw(display)?;
+    Text::new("RAM", text_point(DISP_X_PAD, 2), mem_text_style).draw(display)?;
 
     // Free memory percent display, right aligned.
     let mut avg = percent_string(1.0 - perf.memory_load, false);
@@ -104,14 +138,14 @@ where
     Text::new(
         avg.as_str(),
         text_point_right(2, avg.as_str()),
-        text_style,
+        mem_text_style,
     )
     .draw(display)?;
 
     // Draw memory used bar.
     bar_graph(
         display,
-        solid_bar_style,
+        mem_bar_style,
         Point::new(DISP_X_PAD, line_y_offset(3)),
         Size::new(BAR_WIDTH, BAR_HEIGHT),
         perf.memory_load,
