@@ -55,8 +55,6 @@ mod app {
     // LED blinks on USB activity.
     type ActivityLED = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>;
 
-    type ScopePin = hal::gpio::Pin<hal::gpio::pin::bank0::Gpio21, hal::gpio::PushPullOutput>;
-
     // ST7789V IPS screen, aka T-Display.
     type Display = mipidsi::Display<
         display_interface_spi::SPIInterface<
@@ -89,7 +87,6 @@ mod app {
     #[local]
     struct Local {
         led: crate::app::ActivityLED,
-        scope: crate::app::ScopePin,
     }
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<usb::UsbBus>> = None])]
@@ -130,9 +127,6 @@ mod app {
         );
         let mut led: ActivityLED = pins.gpio25.into_push_pull_output();
         unwrap!(led.set_low());
-        pins.gpio23.into_push_pull_output().set_high().unwrap();
-
-        let scope: ScopePin = pins.gpio21.into_push_pull_output();
 
         // Setup SPI bus for onboard "T-Display".
         let _spi_sclk = pins.gpio2.into_mode::<hal::gpio::FunctionSpi>();
@@ -195,19 +189,9 @@ mod app {
                 prev_perf: None,
                 timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
             },
-            Local { led, scope },
+            Local { led },
             init::Monotonics(mono),
         )
-    }
-
-    #[idle()]
-    fn idle(_ctx: idle::Context) -> ! {
-        loop {
-            for _ in 0..10_000_000 {
-                cortex_m::asm::nop();
-            }
-            debug!("idle 10m");
-        }
     }
 
     #[task(shared = [pulse_led], local = [led])]
@@ -228,17 +212,13 @@ mod app {
         pulse_led::spawn_after(STATUS_LED_MS.millis()).unwrap();
     }
 
-    #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led], local = [scope])]
+    #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led])]
     fn usb_event(ctx: usb_event::Context) {
-        ctx.local.scope.set_high().ok();
-
         let usb_event::SharedResources { serial, pulse_led } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
             crate::handle_usb_event(serial);
             *pulse_led = true;
         });
-
-        ctx.local.scope.set_low().ok();
     }
 
     #[task(priority = 3, shared = [timeout_handle])]
@@ -297,11 +277,6 @@ mod app {
         (display, frames).lock(|display: &mut Display, frames: &mut FramesDeque| {
             if let Some(frame) = frames.pop_front() {
                 gfx::draw_perf(display, &frame).unwrap();
-                // if let Err(_) = display.flush() {
-                //     error!("Failed to flush display");
-                //     #[cfg(debug_assertions)]
-                //     asm::bkpt();
-                // }
             }
         });
     }
@@ -315,6 +290,7 @@ mod app {
 
         display.lock(|display| {
             if clear_screen {
+                // TODO disable backlight
                 warn!("No perf data received in {} seconds", BLANK_SCREEN_SECS);
                 display.clear(Rgb565::BLACK).ok();
             } else {
