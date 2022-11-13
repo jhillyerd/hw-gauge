@@ -1,15 +1,15 @@
-use stm32f1xx_hal::usb;
+use rp2040_hal::usb;
 use usb_device::prelude::*;
 
 pub const BUF_BYTES: usize = 64;
 const TERMINATOR: u8 = 0;
 
-type StmUsbDevice = UsbDevice<'static, usb::UsbBusType>;
-type StmSerialPort = usbd_serial::SerialPort<'static, usb::UsbBusType>;
+type StmUsbDevice = UsbDevice<'static, usb::UsbBus>;
+type StmSerialPort = usbd_serial::SerialPort<'static, usb::UsbBus>;
 
 pub struct Serial {
-    pub usb_dev: UsbDevice<'static, usb::UsbBusType>,
-    pub port: usbd_serial::SerialPort<'static, usb::UsbBusType>,
+    pub usb_dev: UsbDevice<'static, usb::UsbBus>,
+    pub port: usbd_serial::SerialPort<'static, usb::UsbBus>,
     pub buf: [u8; BUF_BYTES],
     pub buf_next: usize, // Next index to write in buf.
 }
