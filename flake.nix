@@ -27,8 +27,8 @@
 
           scripts.firmware = {
             toolchain = pkgs.writeScriptBin "firmware-toolchain" ''
-              # TODO remove, rust-overlay does the work now
-              true
+              set -e
+              cargo install flip-link
             '';
 
             ci = pkgs.writeScriptBin "firmware-ci" ''
