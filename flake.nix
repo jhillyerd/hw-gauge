@@ -15,6 +15,7 @@
           scripts.firmware = {
             toolchain = pkgs.writeScriptBin "firmware-toolchain" ''
               set -e
+              unset LD_LIBRARY_PATH
               cd firmware
 
               rustup target add thumbv6m-none-eabi
@@ -22,6 +23,7 @@
 
             ci = pkgs.writeScriptBin "firmware-ci" ''
               set -e
+              unset LD_LIBRARY_PATH
               cd firmware
 
               echo "Checking Rust formatting..."
@@ -36,6 +38,7 @@
           devShells.default = pkgs.mkShell {
             buildInputs = with pkgs; [
               gdb
+              glibc
               libusb
               openssl
               pkg-config
