@@ -15,6 +15,6 @@ jobs:
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
       - name: Install build deps
-        run: nix flake metadata
+        run: nix develop --command true
       - name: Firmware CI
         run: nix develop --command ci-firmware
