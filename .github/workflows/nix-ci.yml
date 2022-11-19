@@ -1,0 +1,20 @@
+name: CI powered by Nix
+on: [push, pull_request]
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  firmware_ci:
+    name: Firmware CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install nix
+        uses: cachix/install-nix-action@v18
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - name: Install toolchain
+        run: nix develop --command firmware-toolchain
+      - name: Run firmware CI
+        run: nix develop --command firmware-ci
