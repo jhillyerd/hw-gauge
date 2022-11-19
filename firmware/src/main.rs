@@ -152,8 +152,8 @@ mod app {
         );
 
         // Setup T-Display.
-        unwrap!(pins.gpio22.into_push_pull_output().set_high()); // Power on display.
         // TODO: Investigate PWM for night time.
+        unwrap!(pins.gpio22.into_push_pull_output().set_high()); // Power on display.
         let mut bl_pin = pins.gpio4.into_push_pull_output();
         unwrap!(bl_pin.set_low()); // Backlight off until we've cleared the display.
 
@@ -203,10 +203,7 @@ mod app {
                 prev_perf: None,
                 timeout_handle: Some(no_data_timeout::spawn_after(10.secs(), false).unwrap()),
             },
-            Local {
-                led,
-                frame_buf,
-            },
+            Local { led, frame_buf },
             init::Monotonics(mono),
         )
     }
