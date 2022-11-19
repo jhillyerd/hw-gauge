@@ -4,17 +4,17 @@ on:
   pull_request:
 jobs:
   nix_ci:
-    name: Firmware CI
+    name: Build firmware
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Install Nix
+      - name: Install nix
         uses: cachix/install-nix-action@v18
         with:
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - name: Install build deps
-        run: nix develop --command true
+      - name: Install toolchain
+        run: nix develop --command firmware-toolchain
       - name: Firmware CI
-        run: nix develop --command ci-firmware
+        run: nix develop --command firmware-ci

@@ -12,16 +12,25 @@
         let
           pkgs = import nixpkgs { inherit system; };
 
-          scriptCiFirmware = pkgs.writeScriptBin "ci-firmware" ''
-            set -e
-            cd firmware
+          scripts.firmware = {
+            toolchain = pkgs.writeScriptBin "firmware-toolchain" ''
+              set -e
+              cd firmware
 
-            echo "Checking Rust formatting..."
-            cargo fmt --check
+              rustup target add thumbv6m-none-eabi
+            '';
 
-            echo "Building firmware..."
-            cargo build --release
-          '';
+            ci = pkgs.writeScriptBin "firmware-ci" ''
+              set -e
+              cd firmware
+
+              echo "Checking Rust formatting..."
+              cargo fmt --check
+
+              echo "Building firmware..."
+              cargo build --release
+            '';
+          };
         in
         {
           devShells.default = pkgs.mkShell {
@@ -32,7 +41,8 @@
               pkg-config
               rustup
 
-              scriptCiFirmware
+              scripts.firmware.toolchain
+              scripts.firmware.ci
             ];
           };
         });
