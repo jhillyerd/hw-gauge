@@ -25,15 +25,30 @@
         let
           pkgs = import nixpkgs { inherit overlays system; };
 
-          scripts.firmware = {
-            toolchain = pkgs.writeScriptBin "firmware-toolchain" ''
-              set -e
-              cargo install flip-link
-            '';
+          scripts = {
+            firmware = {
+              toolchain = pkgs.writeScriptBin "firmware-toolchain" ''
+                set -e
+                cargo install flip-link
+              '';
 
-            ci = pkgs.writeScriptBin "firmware-ci" ''
+              ci = pkgs.writeScriptBin "firmware-ci" ''
+                set -e
+                cd firmware
+
+                echo "::group::Checking Rust formatting"
+                cargo fmt --check
+                echo "::endgroup::"
+
+                echo "::group::Build and lint"
+                cargo clippy -- -D warnings
+                echo "::endgroup::"
+              '';
+            };
+
+            daemon.linux.ci = pkgs.writeScriptBin "linux-daemon-ci" ''
               set -e
-              cd firmware
+              cd daemon/linux
 
               echo "::group::Checking Rust formatting"
               cargo fmt --check
@@ -57,6 +72,7 @@
 
               scripts.firmware.toolchain
               scripts.firmware.ci
+              scripts.daemon.linux.ci
             ];
           };
         });
