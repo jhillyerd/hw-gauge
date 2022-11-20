@@ -59,7 +59,7 @@ where
     display.clear(BACKGROUND_COLOR)?;
     Text::new(msg, text_point(DISP_X_PAD, 1), text_style).draw(display)?;
 
-    return Ok(());
+    Ok(())
 }
 
 // Renders the full performance display.
@@ -200,7 +200,7 @@ where
 
 fn percent_string(ratio: f32, fractional: bool) -> String<16> {
     fn digit(d: i32) -> char {
-        (('0' as u8) + d as u8) as char
+        (b'0' + d as u8) as char
     }
 
     let mut num = ((ratio * 1000.0) as i32).min(999);
