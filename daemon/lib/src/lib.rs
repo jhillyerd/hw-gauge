@@ -1,7 +1,5 @@
 use avg::Averager;
-use log;
 use once_cell::sync::Lazy;
-use postcard;
 use serialport::{SerialPort, SerialPortInfo, SerialPortType};
 use shared::message;
 use std::io;
@@ -152,7 +150,7 @@ fn write_perf_data(
     let perf = message::PerfData {
         all_cores_load: busy_fraction(&load_agg),
         all_cores_avg: cpu_avg.average().unwrap_or_default() as f32,
-        peak_core_load: busy_fraction(&min_idle),
+        peak_core_load: busy_fraction(min_idle),
         memory_load,
         daytime,
     };

@@ -3,8 +3,8 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
 jobs:
-  firmware_ci:
-    name: Firmware CI
+  build_lint:
+    name: Build and lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -18,3 +18,5 @@ jobs:
         run: nix develop --command firmware-toolchain
       - name: Run firmware CI
         run: nix develop --command firmware-ci
+      - name: Run Linux daemon CI
+        run: nix develop --command linux-daemon-ci

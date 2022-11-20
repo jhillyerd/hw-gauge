@@ -1,4 +1,3 @@
-use lib;
 use log::{info, warn};
 
 fn main() {
