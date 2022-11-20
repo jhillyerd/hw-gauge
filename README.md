@@ -2,7 +2,7 @@
 
 Rust powered CPU and memory monitor.
 
-![hw-gauge assembled photo](https://github.com/jhillyerd/hw-gauge/blob/main/images/assembled.jpg?raw=true)
+![hw-gauge on the Lilygo](https://github.com/jhillyerd/hw-gauge/blob/main/images/lilygo.jpg?raw=true)
 
 ## daemon/linux
 
@@ -23,7 +23,8 @@ new-service -name "hw-gauge-winsvc" -binarypathname "C:\Program Files\hw-gauge\h
 
 ## firmware
 
-Firmware for STMF103 bluepill boards.
+Firmware for [LilyGO T-Display RP2040] boards.  It should be relatively easy to
+modify for a regular Pi Pico with a ST7789 SPI display.
 
 ## Notes
 
@@ -31,8 +32,4 @@ This project does not use a cargo workspace as building for different targets
 does not work well within them.  This may change after
 [#9030](https://github.com/rust-lang/cargo/pull/9030) is merged.
 
-## Additional images
-
-![hw-gauge case design](https://github.com/jhillyerd/hw-gauge/blob/main/images/case-design.png?raw=true)
-
-![hw-gauge internals](https://github.com/jhillyerd/hw-gauge/blob/main/images/case-internals.jpg?raw=true)
+[LilyGO T-Display RP2040]: https://github.com/Xinyuan-LilyGO/LILYGO-T-display-RP2040
