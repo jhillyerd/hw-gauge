@@ -242,17 +242,14 @@ mod app {
         match msg {
             Ok(msg) => {
                 debug!("Rx message: {:?}", msg);
-                match msg {
-                    message::FromHost::ShowPerf(perf_data) => {
-                        // Reschedule pending no-data timeout.
-                        ctx.shared.timeout_handle.lock(|timeout_opt| {
-                            timeout_opt.take().map(|timeout| timeout.cancel().ok());
-                            *timeout_opt = no_data_timeout::spawn_after(2.secs(), false).ok();
-                        });
+                if let message::FromHost::ShowPerf(perf_data) = msg {
+                    // Reschedule pending no-data timeout.
+                    ctx.shared.timeout_handle.lock(|timeout_opt| {
+                        timeout_opt.take().map(|timeout| timeout.cancel().ok());
+                        *timeout_opt = no_data_timeout::spawn_after(2.secs(), false).ok();
+                    });
 
-                        handle_perf::spawn(perf_data).ok();
-                    }
-                    _ => {}
+                    handle_perf::spawn(perf_data).ok();
                 }
             }
             Err(_) => {
@@ -284,7 +281,7 @@ mod app {
         let show_perf::SharedResources { display, frames } = ctx.shared;
         let frame_buf = ctx.local.frame_buf;
 
-        if let Err(_) = show_perf::spawn_at(monotonics::now() + perf::FRAME_MS.millis()) {
+        if show_perf::spawn_at(monotonics::now() + perf::FRAME_MS.millis()).is_err() {
             error!("Failed to request show_perf::spawn_at");
             asm::bkpt();
         }
@@ -329,9 +326,7 @@ mod app {
 fn handle_usb_event(serial: &mut io::Serial) {
     let mut result = [0u8; io::BUF_BYTES];
     let len = serial.read_packet(&mut result[..]).unwrap();
-    if len > 0 {
-        if let Err(_) = app::handle_packet::spawn(result) {
-            error!("Failed to spawn handle_packet, likely still handling last packet")
-        }
+    if len > 0 && app::handle_packet::spawn(result).is_err() {
+        error!("Failed to spawn handle_packet, likely still handling last packet")
     }
 }

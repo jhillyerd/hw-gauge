@@ -58,7 +58,7 @@ pub fn update_state(
                     daytime: target.daytime,
                 };
 
-                if let Err(_) = frames.push_back(prev) {
+                if frames.push_back(prev).is_err() {
                     error!("Frame queue is full");
                     break;
                 }
