@@ -33,14 +33,15 @@
 
             ci = pkgs.writeScriptBin "firmware-ci" ''
               set -e
-              unset LD_LIBRARY_PATH
               cd firmware
 
-              echo "Checking Rust formatting..."
+              echo "::group::Checking Rust formatting"
               cargo fmt --check
+              echo "::endgroup::"
 
-              echo "Building firmware..."
-              cargo build --release
+              echo "::group::Build and lint"
+              cargo clippy -- -D warnings
+              echo "::endgroup::"
             '';
           };
         in
