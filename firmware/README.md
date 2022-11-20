@@ -1,22 +1,24 @@
 # hw-gauge-firmware
 
-This firmware is for a bluepill (STM32F103C8) board with an I2C display
-connected to B10 (SCL) and B11 (SDA).
+This firmware is for a Pico (RP2040) board with a ST7789V SPI display connected
+to GP2 (SCLK) and GP3 (MOSI).
+
+The [LilyGO T-Display RP2040] is a ready made board that is compatible with this
+firmware.
+
+## Building and flashing
 
 Install build environment:
 
 ```sh
-rustup target add thumbv7m-none-eabi
+rustup target add thumbv6m-none-eabi
 cargo install probe-run
 ```
 
 Build & flash debug firmware:
 
-*Debug build no longer fits in bluepill flash, but you can still use DEFMT_LOG*
-*with the release build below.*
-
 ```sh
-env DEFMT_LOG=debug cargo run
+env DEFMT_LOG=debug cargo r
 ```
 
 Build & flash release firmware:
@@ -24,3 +26,5 @@ Build & flash release firmware:
 ```sh
 cargo rr
 ```
+
+[LilyGO T-Display RP2040]: https://github.com/Xinyuan-LilyGO/LILYGO-T-display-RP2040
