@@ -1,6 +1,12 @@
 # hw-gauge
 
-Rust powered CPU and memory monitor.
+A rust powered CPU and memory monitor for Linux and Windows systems.
+
+The device displays a bar graph indicating both the all-cores average (on the
+left) and the peak core load, as well as the 15 second average in numeric form.
+
+The graphs are updated once per second, but the CPU bars have animated falloff
+to make it more visually appealing.
 
 ![hw-gauge on the Lilygo](https://github.com/jhillyerd/hw-gauge/blob/main/images/lilygo.jpg?raw=true)
 
@@ -12,8 +18,8 @@ A simple Linux daemon to send CPU info to the device.
 
 Windows service to send CPU info to the device.
 
-After building the executable with cargo, create a `hw-gauge` folder in `Program Files`, and copy
-`hw-gauge-winsvc.exe` into it.
+After building the executable with cargo, create a `hw-gauge` folder in
+`Program Files`, and copy `hw-gauge-winsvc.exe` into it.
 
 Then run the following command from an Administrator PowerShell prompt:
 
