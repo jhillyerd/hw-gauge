@@ -121,10 +121,12 @@ where
     // Draw memory used bar.
     bar_graph(
         display,
-        mem_bar_style,
         Point::new(DISP_X_PAD, line_y_offset(3)),
         Size::new(BAR_WIDTH, BAR_HEIGHT),
-        perf.memory_load,
+        Bar {
+            value: perf.memory_load,
+            style: mem_bar_style,
+        },
     )?;
 
     Ok(())
@@ -155,13 +157,17 @@ where
 
     double_bar_graph(
         display,
-        cpu_avg_bar_style,
-        cpu_peak_bar_style,
         background,
         Point::new(DISP_X_PAD, line_y_offset(1)),
         Size::new(BAR_WIDTH, BAR_HEIGHT),
-        perf.all_cores_load,
-        perf.peak_core_load,
+        Bar {
+            value: perf.all_cores_load,
+            style: cpu_avg_bar_style,
+        },
+        Bar {
+            value: perf.peak_core_load,
+            style: cpu_peak_bar_style,
+        },
     )?;
 
     Ok(())
@@ -183,13 +189,12 @@ fn text_point_right(line: i32, text: &str) -> Point {
     text_point(DISP_WIDTH - DISP_X_PAD - text_width, line)
 }
 
-fn bar_graph<T>(
-    display: &mut T,
+struct Bar {
+    value: f32,
     style: PrimitiveStyle<Rgb565>,
-    offset: Point,
-    size: Size,
-    val: f32,
-) -> Result<(), T::Error>
+}
+
+fn bar_graph<T>(display: &mut T, offset: Point, size: Size, bar: Bar) -> Result<(), T::Error>
 where
     T: DrawTarget<Color = Rgb565>,
 {
@@ -201,8 +206,8 @@ where
     };
 
     // Wide, high value bar.
-    Rectangle::new(offset, Size::new(scale_x(val), size.height))
-        .into_styled(style)
+    Rectangle::new(offset, Size::new(scale_x(bar.value), size.height))
+        .into_styled(bar.style)
         .draw(display)?;
 
     Ok(())
@@ -211,13 +216,11 @@ where
 // Draws overlaid bar graph, where left_val is always smaller than right_val.
 fn double_bar_graph<T>(
     display: &mut T,
-    left_style: PrimitiveStyle<Rgb565>,
-    right_style: PrimitiveStyle<Rgb565>,
     background: PrimitiveStyle<Rgb565>,
     offset: Point,
     size: Size,
-    left_val: f32,
-    right_val: f32,
+    left: Bar,
+    right: Bar,
 ) -> Result<(), T::Error>
 where
     T: DrawTarget<Color = Rgb565>,
@@ -229,12 +232,12 @@ where
         let x = (max_x_f * val) as u32;
         x.min(max_x)
     };
-    let left_scaled = scale_x(left_val);
-    let right_scaled = scale_x(right_val);
+    let left_scaled = scale_x(left.value);
+    let right_scaled = scale_x(right.value);
 
     if left_scaled != 0 {
         Rectangle::new(offset, Size::new(left_scaled, size.height))
-            .into_styled(left_style)
+            .into_styled(left.style)
             .draw(display)?;
     }
 
@@ -245,7 +248,7 @@ where
             Point::new(left_scaled as i32, 0) + offset,
             Size::new(right_scaled - left_scaled, size.height),
         )
-        .into_styled(right_style)
+        .into_styled(right.style)
         .draw(display)?;
     }
 
