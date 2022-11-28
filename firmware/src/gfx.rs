@@ -141,6 +141,10 @@ where
         NIGHT_COLORS
     };
 
+    let background = PrimitiveStyleBuilder::new()
+        .fill_color(colors.background)
+        .build();
+
     let cpu_peak_bar_style = PrimitiveStyleBuilder::new()
         .fill_color(colors.cpu_bar_peak)
         .build();
@@ -149,22 +153,15 @@ where
         .fill_color(colors.cpu_bar_avg)
         .build();
 
-    // Draw longer peak core load bar.
-    bar_graph(
-        display,
-        cpu_peak_bar_style,
-        Point::new(DISP_X_PAD, line_y_offset(1)),
-        Size::new(BAR_WIDTH, BAR_HEIGHT),
-        perf.peak_core_load,
-    )?;
-
-    // Draw shorter, overlapping all cores load bar.
-    bar_graph(
+    double_bar_graph(
         display,
         cpu_avg_bar_style,
+        cpu_peak_bar_style,
+        background,
         Point::new(DISP_X_PAD, line_y_offset(1)),
         Size::new(BAR_WIDTH, BAR_HEIGHT),
         perf.all_cores_load,
+        perf.peak_core_load,
     )?;
 
     Ok(())
@@ -204,11 +201,60 @@ where
     };
 
     // Wide, high value bar.
+    Rectangle::new(offset, Size::new(scale_x(val), size.height))
+        .into_styled(style)
+        .draw(display)?;
+
+    Ok(())
+}
+
+// Draws overlaid bar graph, where left_val is always smaller than right_val.
+fn double_bar_graph<T>(
+    display: &mut T,
+    left_style: PrimitiveStyle<Rgb565>,
+    right_style: PrimitiveStyle<Rgb565>,
+    background: PrimitiveStyle<Rgb565>,
+    offset: Point,
+    size: Size,
+    left_val: f32,
+    right_val: f32,
+) -> Result<(), T::Error>
+where
+    T: DrawTarget<Color = Rgb565>,
+{
+    // Scale float values into integer pixel widths.
+    let max_x = size.width - 1;
+    let max_x_f = max_x as f32;
+    let scale_x = |val: f32| {
+        let x = (max_x_f * val) as u32;
+        x.min(max_x)
+    };
+    let left_scaled = scale_x(left_val);
+    let right_scaled = scale_x(right_val);
+
+    if left_scaled != 0 {
+        Rectangle::new(offset, Size::new(left_scaled, size.height))
+            .into_styled(left_style)
+            .draw(display)?;
+    }
+
+    let mut max_scaled = left_scaled;
+    if right_scaled > left_scaled {
+        max_scaled = right_scaled;
+        Rectangle::new(
+            Point::new(left_scaled as i32, 0) + offset,
+            Size::new(right_scaled - left_scaled, size.height),
+        )
+        .into_styled(right_style)
+        .draw(display)?;
+    }
+
+    // Clear remaining space.
     Rectangle::new(
-        Point::new(0, 0) + offset,
-        Size::new(scale_x(val), size.height),
+        Point::new(max_scaled as i32, 0) + offset,
+        Size::new(size.width - max_scaled, size.height),
     )
-    .into_styled(style)
+    .into_styled(background)
     .draw(display)?;
 
     Ok(())
