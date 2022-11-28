@@ -3,7 +3,7 @@ use heapless::Deque;
 use shared::message::PerfData;
 
 // Frames per second for interpolated display updates.
-const FRAMES_PER_SECOND: u32 = 7;
+const FRAMES_PER_SECOND: u32 = 18;
 
 // CPU bar fall-off rate in percentage points per second.
 const FALL_PCT_PER_SECOND: f32 = 70.0;
