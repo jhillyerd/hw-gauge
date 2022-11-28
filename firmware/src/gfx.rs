@@ -78,14 +78,6 @@ where
         .text_color(colors.cpu_text)
         .build();
 
-    let cpu_peak_bar_style = PrimitiveStyleBuilder::new()
-        .fill_color(colors.cpu_bar_peak)
-        .build();
-
-    let cpu_avg_bar_style = PrimitiveStyleBuilder::new()
-        .fill_color(colors.cpu_bar_avg)
-        .build();
-
     let mem_text_style = MonoTextStyleBuilder::new()
         .font(&FONT)
         .text_color(colors.mem_text)
@@ -111,23 +103,7 @@ where
     )
     .draw(display)?;
 
-    // Draw longer peak core load bar.
-    bar_graph(
-        display,
-        cpu_peak_bar_style,
-        Point::new(DISP_X_PAD, line_y_offset(1)),
-        Size::new(BAR_WIDTH, BAR_HEIGHT),
-        perf.peak_core_load,
-    )?;
-
-    // Draw shorter, overlapping all cores load bar.
-    bar_graph(
-        display,
-        cpu_avg_bar_style,
-        Point::new(DISP_X_PAD, line_y_offset(1)),
-        Size::new(BAR_WIDTH, BAR_HEIGHT),
-        perf.all_cores_load,
-    )?;
+    draw_cpu_bar_graph(display, perf)?;
 
     // RAM heading.
     Text::new("RAM", text_point(DISP_X_PAD, 2), mem_text_style).draw(display)?;
@@ -149,6 +125,46 @@ where
         Point::new(DISP_X_PAD, line_y_offset(3)),
         Size::new(BAR_WIDTH, BAR_HEIGHT),
         perf.memory_load,
+    )?;
+
+    Ok(())
+}
+
+// Renders the overlaid CPU bar graphs, can be used without clearing the screen first.
+pub fn draw_cpu_bar_graph<T>(display: &mut T, perf: &message::PerfData) -> Result<(), T::Error>
+where
+    T: DrawTarget<Color = Rgb565>,
+{
+    let colors = if perf.daytime {
+        DAY_COLORS
+    } else {
+        NIGHT_COLORS
+    };
+
+    let cpu_peak_bar_style = PrimitiveStyleBuilder::new()
+        .fill_color(colors.cpu_bar_peak)
+        .build();
+
+    let cpu_avg_bar_style = PrimitiveStyleBuilder::new()
+        .fill_color(colors.cpu_bar_avg)
+        .build();
+
+    // Draw longer peak core load bar.
+    bar_graph(
+        display,
+        cpu_peak_bar_style,
+        Point::new(DISP_X_PAD, line_y_offset(1)),
+        Size::new(BAR_WIDTH, BAR_HEIGHT),
+        perf.peak_core_load,
+    )?;
+
+    // Draw shorter, overlapping all cores load bar.
+    bar_graph(
+        display,
+        cpu_avg_bar_style,
+        Point::new(DISP_X_PAD, line_y_offset(1)),
+        Size::new(BAR_WIDTH, BAR_HEIGHT),
+        perf.all_cores_load,
     )?;
 
     Ok(())
