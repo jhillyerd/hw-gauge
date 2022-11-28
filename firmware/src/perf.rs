@@ -3,7 +3,7 @@ use heapless::Deque;
 use shared::message::PerfData;
 
 // Frames per second for interpolated display updates.
-const FRAMES_PER_SECOND: u32 = 7;
+const FRAMES_PER_SECOND: u32 = 18;
 
 // CPU bar fall-off rate in percentage points per second.
 const FALL_PCT_PER_SECOND: f32 = 70.0;
@@ -13,8 +13,15 @@ pub const FRAME_MS: u64 = 1000 / FRAMES_PER_SECOND as u64;
 
 const FALL_FRAC_PER_FRAME: f32 = FALL_PCT_PER_SECOND / 100.0 / FRAMES_PER_SECOND as f32;
 
+pub enum PerfFrame {
+    // Complete frame should redraw the entire screen.
+    Complete(PerfData),
+    // Partial frame only updates CPU graphs.
+    Partial(PerfData),
+}
+
 // Frames of perf data queued for display.
-pub type FramesDeque = Deque<PerfData, 64>;
+pub type FramesDeque = Deque<PerfFrame, 64>;
 
 /// Calculates what to display based on the previously stored state and new target state,
 /// if present.
@@ -29,7 +36,7 @@ pub fn update_state(
     match previous {
         // Displays new perf packet unaltered, as there is no history.
         None => {
-            frames.push_back(target).ok();
+            frames.push_back(PerfFrame::Complete(target)).ok();
             Some(target)
         }
 
@@ -48,7 +55,7 @@ pub fn update_state(
             // Generate upcoming frames. Does not schedule frame at 1s, as that
             // is when the next PerfData packet should arrive from the host.
             let mut prev = prev;
-            for _ in 0..FRAMES_PER_SECOND {
+            for i in 0..FRAMES_PER_SECOND {
                 // Calculate perf data for this frame, store in prev for basis of next frame.
                 prev = PerfData {
                     all_cores_load: update_cpu_load(prev.all_cores_load, target.all_cores_load),
@@ -58,7 +65,14 @@ pub fn update_state(
                     daytime: target.daytime,
                 };
 
-                if frames.push_back(prev).is_err() {
+                let frame = if i == 0 {
+                    PerfFrame::Complete(prev)
+                } else {
+                    // Only paint CPU bar graphs.
+                    PerfFrame::Partial(prev)
+                };
+
+                if frames.push_back(frame).is_err() {
                     error!("Frame queue is full");
                     break;
                 }

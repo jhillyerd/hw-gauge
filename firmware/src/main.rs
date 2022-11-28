@@ -24,7 +24,7 @@ pub static BOOT2_FIRMWARE: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 mod app {
     use crate::{
         gfx, io,
-        perf::{self, FramesDeque},
+        perf::{self, FramesDeque, PerfFrame},
     };
     use core::mem::MaybeUninit;
     use cortex_m::asm;
@@ -288,9 +288,15 @@ mod app {
 
         // Pop a frame off the front of the frame queue and display it.
         (display, frames).lock(|display: &mut Display, frames: &mut FramesDeque| {
-            if let Some(frame) = frames.pop_front() {
-                gfx::draw_perf(frame_buf, &frame).unwrap();
-                display.draw_iter(frame_buf.into_iter()).unwrap();
+            match frames.pop_front() {
+                Some(PerfFrame::Complete(frame)) => {
+                    gfx::draw_perf(frame_buf, &frame).unwrap();
+                    display.draw_iter(frame_buf.into_iter()).unwrap();
+                }
+                Some(PerfFrame::Partial(frame)) => {
+                    gfx::draw_cpu_bar_graph(display, &frame).unwrap();
+                }
+                None => {}
             }
         });
     }
