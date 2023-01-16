@@ -29,7 +29,6 @@
             firmware = {
               toolchain = pkgs.writeScriptBin "firmware-toolchain" ''
                 set -e
-                cargo install flip-link
               '';
 
               ci = pkgs.writeScriptBin "firmware-ci" ''
@@ -63,6 +62,7 @@
         {
           devShells.default = pkgs.mkShell {
             buildInputs = with pkgs; [
+              flip-link
               gdb
               glibc
               libusb
