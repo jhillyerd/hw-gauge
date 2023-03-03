@@ -1,0 +1,12 @@
+[workspace]
+
+members = [
+    "daemon/lib",
+    "daemon/linux",
+    "daemon/windows",
+    "shared",
+]
+
+exclude = [
+    "firmware",
+]
