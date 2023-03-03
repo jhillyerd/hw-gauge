@@ -4,13 +4,15 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+
+    crane.url = "github:ipetkov/crane";
+    crane.inputs.nixpkgs.follows = "nixpkgs";
+
+    rust-overlay.url = "github:oxalica/rust-overlay";
+    rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, crane }:
     let
       overlays = [
         (import rust-overlay)
@@ -24,6 +26,8 @@
       (system:
         let
           pkgs = import nixpkgs { inherit overlays system; };
+
+          code = import ./. { inherit system pkgs crane; };
 
           scripts = {
             firmware = {
@@ -74,6 +78,10 @@
               scripts.firmware.ci
               scripts.daemon.linux.ci
             ];
+          };
+
+          packages = {
+            daemon = code.daemon;
           };
         });
 }
