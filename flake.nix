@@ -29,39 +29,7 @@
 
           code = import ./. { inherit system pkgs crane; };
 
-          scripts = {
-            firmware = {
-              toolchain = pkgs.writeScriptBin "firmware-toolchain" ''
-                set -e
-              '';
-
-              ci = pkgs.writeScriptBin "firmware-ci" ''
-                set -e
-                cd firmware
-
-                echo "::group::Checking Rust formatting"
-                cargo fmt --check
-                echo "::endgroup::"
-
-                echo "::group::Build and lint"
-                cargo clippy -- -D warnings
-                echo "::endgroup::"
-              '';
-            };
-
-            daemon.linux.ci = pkgs.writeScriptBin "linux-daemon-ci" ''
-              set -e
-              cd daemon/linux
-
-              echo "::group::Checking Rust formatting"
-              cargo fmt --check
-              echo "::endgroup::"
-
-              echo "::group::Build and lint"
-              cargo clippy -- -D warnings
-              echo "::endgroup::"
-            '';
-          };
+          scripts = import ./scripts.nix { inherit pkgs; };
         in
         {
           devShells.default = pkgs.mkShell {
