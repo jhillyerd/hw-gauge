@@ -14,6 +14,9 @@
 
   outputs = { self, nixpkgs, flake-utils, rust-overlay, crane }:
     let
+      inherit (nixpkgs) lib;
+      inherit (flake-utils.lib) eachSystem system;
+
       overlays = [
         (import rust-overlay)
         # Build Rust toolchain with helpers from rust-overlay
@@ -22,7 +25,11 @@
         })
       ];
     in
-    flake-utils.lib.eachDefaultSystem
+    {
+      nixosModules.hw-gauge-daemon = import ./module.nix self;
+      nixosModules.default = self.nixosModules.hw-gauge-daemon;
+    } //
+    eachSystem [ system.x86_64-linux ]
       (system:
         let
           pkgs = import nixpkgs { inherit overlays system; };
@@ -32,6 +39,10 @@
           scripts = import ./scripts.nix { inherit pkgs; };
         in
         {
+          packages = {
+            daemon = code.daemon;
+          };
+
           devShells.default = pkgs.mkShell {
             buildInputs = with pkgs; [
               flip-link
@@ -46,10 +57,6 @@
               scripts.firmware.ci
               scripts.daemon.linux.ci
             ];
-          };
-
-          packages = {
-            daemon = code.daemon;
           };
         });
 }
