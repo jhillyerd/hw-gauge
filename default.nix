@@ -2,24 +2,19 @@
 let
   craneLib = crane.lib.${system};
   version = "0.1.0";
-in rec
+in
+rec
 {
-  shared = craneLib.buildPackage {
-    inherit version;
-
-    pname = "hw-gauge-shared";
-
-    src = craneLib.cleanCargoSource ./shared;
-  };
-
   daemon = craneLib.buildPackage {
     inherit version;
 
     pname = "hw-gauge-daemon";
 
-    src = craneLib.cleanCargoSource ./daemon;
+    src = craneLib.cleanCargoSource ./.;
     cargoExtraArgs = "-p linux";
 
-    buildInputs = [ shared ];
+    buildInputs = with pkgs; [ systemd ];
+
+    nativeBuildInputs = with pkgs; [ pkg-config ];
   };
 }
