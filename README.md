@@ -58,10 +58,5 @@ You may then use `services.msc` to start the newly added service.
 Firmware for [LilyGO T-Display RP2040] boards.  It should be relatively easy to
 modify for a regular Pi Pico with a ST7789 SPI display.
 
-## Notes
-
-This project does not use a cargo workspace as building for different targets
-does not work well within them.  This may change after
-[#9030](https://github.com/rust-lang/cargo/pull/9030) is merged.
 
 [LilyGO T-Display RP2040]: https://github.com/Xinyuan-LilyGO/LILYGO-T-display-RP2040
