@@ -18,14 +18,40 @@ A simple Linux daemon to send CPU info to the device.
 
 Windows service to send CPU info to the device.
 
-After building the executable with cargo, create a `hw-gauge` folder in
-`Program Files`, and copy `hw-gauge-winsvc.exe` into it.
+### Building
 
-Then run the following command from an Administrator PowerShell prompt:
+If you don't already have a Rust MSVC toolchain installed, install the
+VisualStudio Build Tools with the `Desktop development with C++` option
+enabled.  Then install `rustup`, and finally close+reopen PowerShell to load
+the updated PATH:
+
+```powershell
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Rustlang.Rustup
+exit
+```
+
+Build the service executable:
+
+```powershell
+cd daemon\windows
+cargo build -r
+```
+
+### Installation
+
+After building the executable, create a `hw-gauge` folder in
+`C:\Program Files`, and copy `target\release\hw-gauge-winsvc.exe` into it;
+without creating the target and release directories.
+
+Run the following command from an Administrator PowerShell prompt to register
+the service:
 
 ```powershell
 new-service -name "hw-gauge-winsvc" -binarypathname "C:\Program Files\hw-gauge\hw-gauge-winsvc.exe"
 ```
+
+You may then use `services.msc` to start the newly added service.
 
 ## firmware
 
