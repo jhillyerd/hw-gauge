@@ -1,13 +1,12 @@
-use defmt::Format;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Format, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum FromHost {
     ClearScreen,
     ShowPerf(PerfData),
 }
 
-#[derive(Clone, Copy, Debug, Format, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct PerfData {
     // Aggregate load of all CPU cores, 0-1.0.
     pub all_cores_load: f32,
