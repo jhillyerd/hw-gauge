@@ -18,24 +18,45 @@ A simple Linux daemon to send CPU info to the device.
 
 Windows service to send CPU info to the device.
 
-After building the executable with cargo, create a `hw-gauge` folder in
-`Program Files`, and copy `hw-gauge-winsvc.exe` into it.
+### Building
 
-Then run the following command from an Administrator PowerShell prompt:
+If you don't already have a Rust MSVC toolchain installed, install the
+VisualStudio Build Tools with the `Desktop development with C++` option
+enabled.  Then install `rustup`, and finally close+reopen PowerShell to load
+the updated PATH:
+
+```powershell
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Rustlang.Rustup
+exit
+```
+
+Build the service executable:
+
+```powershell
+cd daemon\windows
+cargo build -r
+```
+
+### Installation
+
+After building the executable, create a `hw-gauge` folder in
+`C:\Program Files`, and copy `target\release\hw-gauge-winsvc.exe` into it;
+without creating the target and release directories.
+
+Run the following command from an Administrator PowerShell prompt to register
+the service:
 
 ```powershell
 new-service -name "hw-gauge-winsvc" -binarypathname "C:\Program Files\hw-gauge\hw-gauge-winsvc.exe"
 ```
+
+You may then use `services.msc` to start the newly added service.
 
 ## firmware
 
 Firmware for [LilyGO T-Display RP2040] boards.  It should be relatively easy to
 modify for a regular Pi Pico with a ST7789 SPI display.
 
-## Notes
-
-This project does not use a cargo workspace as building for different targets
-does not work well within them.  This may change after
-[#9030](https://github.com/rust-lang/cargo/pull/9030) is merged.
 
 [LilyGO T-Display RP2040]: https://github.com/Xinyuan-LilyGO/LILYGO-T-display-RP2040
