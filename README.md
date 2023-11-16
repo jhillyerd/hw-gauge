@@ -14,6 +14,15 @@ to make it more visually appealing.
 
 A simple Linux daemon to send CPU info to the device.
 
+### Building
+
+Install rustup per your Linux distribution to get a functioning Rust toolchain.
+Use `cargo run` to test the daemon:
+
+```sh
+env RUST_LOG=debug cargo run
+```
+
 ## daemon/windows
 
 Windows service to send CPU info to the device.
