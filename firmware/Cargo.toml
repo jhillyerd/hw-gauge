@@ -22,7 +22,7 @@ panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 postcard = "1.0.2"
 rtic-core = "1.0.0"
 rtic-monotonic = "1.0.0"
-shared = { path = "../shared" }
+shared = { path = "../shared", features = ["defmt-log"] }
 rp2040-boot2 = "0.2.1"
 rp2040-hal = { version = "0.6.0", features = ["rt", "rp2040-e5"] }
 rp2040-monotonic = "<=1.1.0"

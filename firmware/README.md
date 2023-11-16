@@ -12,6 +12,7 @@ Install build environment:
 
 ```sh
 rustup target add thumbv6m-none-eabi
+cargo install flip-link
 cargo install probe-run
 ```
 
