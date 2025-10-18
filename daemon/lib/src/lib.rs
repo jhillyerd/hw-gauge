@@ -159,7 +159,7 @@ fn write_perf_data(
     let msg = message::FromHost::ShowPerf(perf);
     let msg_bytes = postcard::to_allocvec_cobs(&msg).expect("COB serialization failed");
 
-    match w.write(&msg_bytes) {
+    match w.write_all(&msg_bytes) {
         Ok(_) => Ok(()),
         Err(err) => Err(Error::IO(err)),
     }
