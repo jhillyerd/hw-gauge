@@ -13,13 +13,13 @@ Install build environment:
 ```sh
 rustup target add thumbv6m-none-eabi
 cargo install flip-link
-cargo install probe-run
+cargo install probe-rs-tools
 ```
 
 Build & flash debug firmware:
 
 ```sh
-env DEFMT_LOG=debug cargo r
+cargo r
 ```
 
 Build & flash release firmware:
