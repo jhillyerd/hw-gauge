@@ -121,7 +121,7 @@ mod app {
         info!("RTIC init started");
 
         // Setup clock & timer.
-        Mono::start(ctx.device.TIMER, &mut resets);
+        Mono::start(ctx.device.TIMER, &resets);
         let mut watchdog = Watchdog::new(ctx.device.WATCHDOG);
         let clocks = unwrap!(hal::clocks::init_clocks_and_plls(
             XOSC_CRYSTAL_FREQ,
@@ -160,7 +160,7 @@ mod app {
             &mut resets,
             clocks.peripheral_clock.freq(),
             15.MHz(), // 66ns minimum clock cycle time for ST7789V.
-            &spi::MODE_3,
+            spi::MODE_3,
         );
 
         // Setup T-Display.
@@ -350,7 +350,7 @@ mod app {
             let instant = Mono::now();
 
             msg_time.lock(|msg_time| {
-                let elapsed = match instant.checked_duration_since(msg_time.clone()) {
+                let elapsed = match instant.checked_duration_since(*msg_time) {
                     Some(elapsed) => elapsed,
                     None => return,
                 };
@@ -367,13 +367,11 @@ mod app {
                             info!("No perf data received recently");
                             gfx::draw_message(display, "No data received").ok();
                         }
-                    } else {
-                        if state != TimeoutState::ClearScreen {
-                            state = TimeoutState::ClearScreen;
-                            // TODO disable backlight
-                            warn!("No perf data received in {} ms", BLANK_SCREEN_MS);
-                            display.clear(Rgb565::BLACK).ok();
-                        }
+                    } else if state != TimeoutState::ClearScreen {
+                        state = TimeoutState::ClearScreen;
+                        // TODO disable backlight
+                        warn!("No perf data received in {} ms", BLANK_SCREEN_MS);
+                        display.clear(Rgb565::BLACK).ok();
                     }
                 });
             });
