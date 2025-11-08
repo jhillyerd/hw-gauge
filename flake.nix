@@ -5,8 +5,6 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
     flake-utils.url = "github:numtide/flake-utils";
 
-    crane.url = "github:ipetkov/crane";
-
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -17,7 +15,6 @@
       nixpkgs,
       flake-utils,
       rust-overlay,
-      crane,
     }:
     let
       inherit (flake-utils.lib) eachSystem system;
@@ -39,7 +36,7 @@
       let
         pkgs = import nixpkgs { inherit overlays system; };
 
-        code = import ./. { inherit system pkgs crane; };
+        code = pkgs.callPackage ./default.nix { };
 
         scripts = import ./scripts.nix { inherit pkgs; };
       in
