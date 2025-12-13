@@ -1,7 +1,6 @@
 #![no_main]
 #![no_std]
 
-use defmt::error;
 use defmt_rtt as _;
 use panic_probe as _;
 use rtic_monotonics::rp2040::prelude::*;
@@ -245,6 +244,7 @@ mod app {
         }
     }
 
+    /// USB interrupt handler: reads incoming packets and schedules their processing.
     #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led])]
     fn usb_event(ctx: usb_event::Context) {
         // TODO: schedule 10ms poll to be compliant.
@@ -252,22 +252,28 @@ mod app {
             serial, pulse_led, ..
         } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
-            crate::handle_usb_event(serial);
             *pulse_led = true;
+
+            let mut result = [0u8; io::BUF_BYTES];
+            let len = serial.read_packet(&mut result[..]).unwrap();
+            if len > 0 && app::handle_packet::spawn(result).is_err() {
+                error!("Failed to spawn handle_packet, likely still handling last packet")
+            }
         });
     }
 
+    /// Decodes and handles an incoming packet.
     #[task(priority = 3, shared = [msg_time])]
     async fn handle_packet(mut ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
                 debug!("Rx message: {:?}", msg);
-                if let message::FromHost::ShowPerf(perf_data) = msg {
-                    ctx.shared.msg_time.lock(|msg_time| {
-                        *msg_time = Mono::now();
-                    });
+                ctx.shared.msg_time.lock(|msg_time| {
+                    *msg_time = Mono::now();
+                });
 
+                if let message::FromHost::ShowPerf(perf_data) = msg {
                     // TODO: should use a queue here.
                     handle_perf::spawn(perf_data).ok();
                 }
@@ -376,14 +382,5 @@ mod app {
                 });
             });
         }
-    }
-}
-
-/// Handles high and low priority USB interrupts.
-fn handle_usb_event(serial: &mut io::Serial) {
-    let mut result = [0u8; io::BUF_BYTES];
-    let len = serial.read_packet(&mut result[..]).unwrap();
-    if len > 0 && app::handle_packet::spawn(result).is_err() {
-        error!("Failed to spawn handle_packet, likely still handling last packet")
     }
 }
