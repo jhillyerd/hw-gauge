@@ -22,10 +22,11 @@ portable-atomic = { version = "1", features = ["critical-section"] }
 postcard = "1.0.2"
 rtic = { version = "2.1.0", features = ["thumbv6-backend"] }
 rtic-monotonics = { version = "2.1.0", features = ["rp2040"] }
-shared = { path = "../shared", features = ["defmt-log"] }
+rtic-rp-monotonic = "0.1.0"
+rtic-sync = "1.4.0"
 rp2040-boot2 = "0.2.1"
 rp2040-hal = { version = "0.11.0", features = ["rt", "rp2040-e5"] }
-rtic-rp-monotonic = "0.1.0"
+shared = { path = "../shared", features = ["defmt-log"] }
 usb-device = "0.3.2"
 usbd-serial = "0.2.2"
 

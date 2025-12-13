@@ -1,7 +1,6 @@
 #![no_main]
 #![no_std]
 
-use defmt::error;
 use defmt_rtt as _;
 use panic_probe as _;
 use rtic_monotonics::rp2040::prelude::*;
@@ -40,6 +39,7 @@ mod app {
     use fugit::{ExtU64, RateExtU32};
     use postcard;
     use rp2040_hal::{self as hal, clocks::Clock, gpio, usb, watchdog::Watchdog};
+    use rtic_sync::channel;
     use shared::{message, message::PerfData};
     use usb_device::{bus::UsbBusAllocator, prelude::*};
 
@@ -55,6 +55,8 @@ mod app {
     // Periods are measured in system clock cycles; smaller is more frequent.
     const USB_VENDOR_ID: u16 = 0x1209; // pid.codes VID.
     const USB_PRODUCT_ID: u16 = 0x0001; // In house private testing only.
+
+    const PERF_CHAN_CAPACITY: usize = 5;
 
     // LED blinks on USB activity.
     type ActivityLED =
@@ -102,6 +104,7 @@ mod app {
     #[local]
     struct Local {
         led: crate::app::ActivityLED,
+        perf_sender: rtic_sync::channel::Sender<'static, PerfData, PERF_CHAN_CAPACITY>,
         frame_buf: crate::app::DisplayBuf,
     }
 
@@ -205,10 +208,13 @@ mod app {
         );
         let usb_dev = usb_dev.device_class(usbd_serial::USB_CLASS_CDC).build();
 
+        let (perf_sender, perf_receiver) = rtic_sync::make_channel!(PerfData, PERF_CHAN_CAPACITY);
+
         // Start tasks.
-        unwrap!(pulse_led::spawn());
-        unwrap!(show_perf::spawn());
-        unwrap!(no_data_timeout::spawn());
+        pulse_led::spawn().unwrap();
+        perf_handler::spawn(perf_receiver).unwrap();
+        show_perf::spawn().unwrap();
+        no_data_timeout::spawn().unwrap();
 
         info!("RTIC init completed");
 
@@ -221,7 +227,11 @@ mod app {
                 prev_perf: None,
                 msg_time: Mono::now(),
             },
-            Local { led, frame_buf },
+            Local {
+                led,
+                perf_sender,
+                frame_buf,
+            },
         )
     }
 
@@ -245,6 +255,7 @@ mod app {
         }
     }
 
+    /// USB interrupt handler: reads incoming packets and schedules their processing.
     #[task(priority = 4, binds = USBCTRL_IRQ, shared = [serial, pulse_led])]
     fn usb_event(ctx: usb_event::Context) {
         // TODO: schedule 10ms poll to be compliant.
@@ -252,24 +263,31 @@ mod app {
             serial, pulse_led, ..
         } = ctx.shared;
         (serial, pulse_led).lock(|serial, pulse_led| {
-            crate::handle_usb_event(serial);
             *pulse_led = true;
+
+            let mut result = [0u8; io::BUF_BYTES];
+            let len = serial.read_packet(&mut result[..]).unwrap();
+            if len > 0 && app::handle_packet::spawn(result).is_err() {
+                error!("Failed to spawn handle_packet, likely still handling last packet")
+            }
         });
     }
 
-    #[task(priority = 3, shared = [msg_time])]
+    /// Decodes and handles an incoming packet.
+    #[task(priority = 3, shared = [msg_time], local = [perf_sender])]
     async fn handle_packet(mut ctx: handle_packet::Context, mut buf: [u8; io::BUF_BYTES]) {
         let msg: Result<message::FromHost, _> = postcard::from_bytes_cobs(&mut buf);
         match msg {
             Ok(msg) => {
                 debug!("Rx message: {:?}", msg);
-                if let message::FromHost::ShowPerf(perf_data) = msg {
-                    ctx.shared.msg_time.lock(|msg_time| {
-                        *msg_time = Mono::now();
-                    });
+                ctx.shared.msg_time.lock(|msg_time| {
+                    *msg_time = Mono::now();
+                });
 
-                    // TODO: should use a queue here.
-                    handle_perf::spawn(perf_data).ok();
+                if let message::FromHost::ShowPerf(perf_data) = msg {
+                    if ctx.local.perf_sender.send(perf_data).await.is_err() {
+                        error!("Failed to enqueue perf data");
+                    }
                 }
             }
             Err(_) => {
@@ -279,25 +297,32 @@ mod app {
         }
     }
 
-    /// Displays PerfData smoothly, by averaging new_perf with prev_perf.  It then updates
-    /// prev_perf, and schedules itself to display that value directly.
+    /// Loops over incoming PerfData messages, and uses [perf::update_state] to create a
+    /// smooth transition between previous and new data.
     #[task(priority = 2, shared = [prev_perf, frames])]
-    async fn handle_perf(ctx: handle_perf::Context, new_perf: PerfData) {
-        let handle_perf::SharedResources {
-            prev_perf, frames, ..
+    async fn perf_handler(
+        ctx: perf_handler::Context,
+        mut perf_receiver: channel::Receiver<'static, PerfData, PERF_CHAN_CAPACITY>,
+    ) {
+        let perf_handler::SharedResources {
+            mut prev_perf,
+            mut frames,
+            ..
         } = ctx.shared;
 
-        (prev_perf, frames).lock(
-            |prev_perf: &mut Option<PerfData>, frames: &mut FramesDeque| {
-                let prev_value = prev_perf.take();
+        while let Ok(new_perf) = perf_receiver.recv().await {
+            (&mut prev_perf, &mut frames).lock(
+                |prev_perf: &mut Option<PerfData>, frames: &mut FramesDeque| {
+                    let prev_value = prev_perf.take();
 
-                // Calculate perf data to display, and previous data to keep.
-                *prev_perf = perf::update_state(prev_value, new_perf, frames);
-            },
-        );
+                    // Calculate perf data to display, and previous data to keep.
+                    *prev_perf = perf::update_state(prev_value, new_perf, frames);
+                },
+            );
+        }
     }
 
-    /// Loop which displays available perf frames.
+    /// Loop which displays available perf frames every FRAME_MS milliseconds.
     #[task(shared = [display, frames], local = [frame_buf])]
     async fn show_perf(ctx: show_perf::Context) -> ! {
         let show_perf::SharedResources {
@@ -376,14 +401,5 @@ mod app {
                 });
             });
         }
-    }
-}
-
-/// Handles high and low priority USB interrupts.
-fn handle_usb_event(serial: &mut io::Serial) {
-    let mut result = [0u8; io::BUF_BYTES];
-    let len = serial.read_packet(&mut result[..]).unwrap();
-    if len > 0 && app::handle_packet::spawn(result).is_err() {
-        error!("Failed to spawn handle_packet, likely still handling last packet")
     }
 }
