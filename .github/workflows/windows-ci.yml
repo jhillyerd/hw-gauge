@@ -1,0 +1,39 @@
+name: Windows CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_test:
+    name: Build and test Windows daemon
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build daemon/windows
+        run: cargo build --release --verbose
+        working-directory: daemon/windows
+
+      - name: Run tests
+        run: cargo test --verbose
+        working-directory: daemon/windows
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+        working-directory: daemon/windows
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+        working-directory: daemon/windows
