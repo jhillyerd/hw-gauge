@@ -1,4 +1,3 @@
-use lib;
 use log::{debug, error, info};
 use std::ffi::OsString;
 use std::fs::File;
